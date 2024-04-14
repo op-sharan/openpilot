@@ -1,10 +1,15 @@
 from collections import namedtuple
+from collections import namedtuple
 from dataclasses import dataclass, field
 from enum import Enum, IntFlag, StrEnum
 
 from cereal import car
 from panda.python import uds
 from opendbc.can.can_define import CANDefine
+from openpilot.common.conversions import Conversions as CV
+from openpilot.selfdrive.car import dbc_dict, CarSpecs, DbcDict, PlatformConfig, Platforms
+from openpilot.selfdrive.car.docs_definitions import CarFootnote, CarHarness, CarDocs, CarParts, Column, \
+                                                     Device
 from openpilot.common.conversions import Conversions as CV
 from openpilot.selfdrive.car import dbc_dict, CarSpecs, DbcDict, PlatformConfig, Platforms
 from openpilot.selfdrive.car.docs_definitions import CarFootnote, CarHarness, CarDocs, CarParts, Column, \
@@ -40,6 +45,7 @@ class CarControllerParams:
   def __init__(self, CP):
     can_define = CANDefine(DBC[CP.carFingerprint]["pt"])
 
+    if CP.flags & VolkswagenFlags.PQ:
     if CP.flags & VolkswagenFlags.PQ:
       self.LDW_STEP = 5                   # LDW_1 message frequency 20Hz
       self.ACC_HUD_STEP = 4               # ACC_GRA_Anzeige frequency 25Hz
@@ -130,10 +136,57 @@ class WMI(StrEnum):
   VOLKSWAGEN_GROUP_RUS = "XW8"
 
 
+class WMI(StrEnum):
+  VOLKSWAGEN_USA_SUV = "1V2"
+  VOLKSWAGEN_USA_CAR = "1VW"
+  VOLKSWAGEN_MEXICO_SUV = "3VV"
+  VOLKSWAGEN_MEXICO_CAR = "3VW"
+  VOLKSWAGEN_ARGENTINA = "8AW"
+  VOLKSWAGEN_BRASIL = "9BW"
+  SAIC_VOLKSWAGEN = "LSV"
+  SKODA = "TMB"
+  SEAT = "VSS"
+  AUDI_EUROPE_MPV = "WA1"
+  AUDI_GERMANY_CAR = "WAU"
+  MAN = "WMA"
+  AUDI_SPORT = "WUA"
+  VOLKSWAGEN_COMMERCIAL = "WV1"
+  VOLKSWAGEN_COMMERCIAL_BUS_VAN = "WV2"
+  VOLKSWAGEN_EUROPE_SUV = "WVG"
+  VOLKSWAGEN_EUROPE_CAR = "WVW"
+  VOLKSWAGEN_GROUP_RUS = "XW8"
+
+
 class VolkswagenFlags(IntFlag):
+  # Detected flags
   # Detected flags
   STOCK_HCA_PRESENT = 1
 
+  # Static flags
+  PQ = 2
+
+
+@dataclass
+class VolkswagenMQBPlatformConfig(PlatformConfig):
+  dbc_dict: DbcDict = field(default_factory=lambda: dbc_dict('vw_mqb_2010', None))
+  # Volkswagen uses the VIN WMI and chassis code to match in the absence of the comma power
+  # on camera-integrated cars, as we lose too many ECUs to reliably identify the vehicle
+  chassis_codes: set[str] = field(default_factory=set)
+  wmis: set[WMI] = field(default_factory=set)
+
+
+@dataclass
+class VolkswagenPQPlatformConfig(VolkswagenMQBPlatformConfig):
+  dbc_dict: DbcDict = field(default_factory=lambda: dbc_dict('vw_golf_mk4', None))
+
+  def init(self):
+    self.flags |= VolkswagenFlags.PQ
+
+
+@dataclass(frozen=True, kw_only=True)
+class VolkswagenCarSpecs(CarSpecs):
+  centerToFrontRatio: float = 0.45
+  steerRatio: float = 15.6
   # Static flags
   PQ = 2
 
@@ -184,6 +237,7 @@ class Footnote(Enum):
 
 @dataclass
 class VWCarDocs(CarDocs):
+class VWCarDocs(CarDocs):
   package: str = "Adaptive Cruise Control (ACC) & Lane Assist"
   car_parts: CarParts = field(default_factory=CarParts.common([CarHarness.j533]))
 
@@ -192,6 +246,7 @@ class VWCarDocs(CarDocs):
     if "SKODA" in CP.carFingerprint:
       self.footnotes.append(Footnote.SKODA_HEATED_WINDSHIELD)
 
+    if CP.carFingerprint in (CAR.VOLKSWAGEN_CRAFTER_MK2, CAR.VOLKSWAGEN_TRANSPORTER_T61):
     if CP.carFingerprint in (CAR.VOLKSWAGEN_CRAFTER_MK2, CAR.VOLKSWAGEN_TRANSPORTER_T61):
       self.car_parts = CarParts([Device.threex_angled_mount, CarHarness.j533])
 
@@ -477,11 +532,15 @@ VOLKSWAGEN_RX_OFFSET = 0x6a
 
 FW_QUERY_CONFIG = FwQueryConfig(
   requests=[request for bus, obd_multiplexing in [(1, True), (1, False), (0, False)] for request in [
+  requests=[request for bus, obd_multiplexing in [(1, True), (1, False), (0, False)] for request in [
     Request(
       [VOLKSWAGEN_VERSION_REQUEST_MULTI],
       [VOLKSWAGEN_VERSION_RESPONSE],
       whitelist_ecus=[Ecu.srs, Ecu.eps, Ecu.fwdRadar, Ecu.fwdCamera],
+      whitelist_ecus=[Ecu.srs, Ecu.eps, Ecu.fwdRadar, Ecu.fwdCamera],
       rx_offset=VOLKSWAGEN_RX_OFFSET,
+      bus=bus,
+      obd_multiplexing=obd_multiplexing,
       bus=bus,
       obd_multiplexing=obd_multiplexing,
     ),
@@ -491,11 +550,19 @@ FW_QUERY_CONFIG = FwQueryConfig(
       whitelist_ecus=[Ecu.engine, Ecu.transmission],
       bus=bus,
       obd_multiplexing=obd_multiplexing,
+      bus=bus,
+      obd_multiplexing=obd_multiplexing,
     ),
   ]],
   non_essential_ecus={Ecu.eps: list(CAR)},
   extra_ecus=[(Ecu.fwdCamera, 0x74f, None)],
   match_fw_to_car_fuzzy=match_fw_to_car_fuzzy,
+  ]],
+  non_essential_ecus={Ecu.eps: list(CAR)},
+  extra_ecus=[(Ecu.fwdCamera, 0x74f, None)],
+  match_fw_to_car_fuzzy=match_fw_to_car_fuzzy,
 )
+
+DBC = CAR.create_dbc_map()
 
 DBC = CAR.create_dbc_map()

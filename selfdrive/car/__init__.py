@@ -3,11 +3,17 @@ from collections import defaultdict, namedtuple
 from dataclasses import dataclass
 from enum import IntFlag, ReprEnum, EnumType
 from dataclasses import replace
+from collections import defaultdict, namedtuple
+from dataclasses import dataclass
+from enum import IntFlag, ReprEnum, EnumType
+from dataclasses import replace
 
 import capnp
 
 from cereal import car
 from openpilot.common.numpy_fast import clip, interp
+from openpilot.common.utils import Freezable
+from openpilot.selfdrive.car.docs_definitions import CarDocs
 from openpilot.common.utils import Freezable
 from openpilot.selfdrive.car.docs_definitions import CarDocs
 
@@ -28,6 +34,9 @@ def apply_hysteresis(val: float, val_steady: float, hyst_gap: float) -> float:
   return val_steady
 
 
+def create_button_events(cur_btn: int, prev_btn: int, buttons_dict: dict[int, capnp.lib.capnp._EnumModule],
+                         unpressed_btn: int = 0) -> list[capnp.lib.capnp._DynamicStructBuilder]:
+  events: list[capnp.lib.capnp._DynamicStructBuilder] = []
 def create_button_events(cur_btn: int, prev_btn: int, buttons_dict: dict[int, capnp.lib.capnp._EnumModule],
                          unpressed_btn: int = 0) -> list[capnp.lib.capnp._DynamicStructBuilder]:
   events: list[capnp.lib.capnp._DynamicStructBuilder] = []
@@ -77,6 +86,10 @@ def scale_tire_stiffness(mass, wheelbase, center_to_front, tire_stiffness_factor
   return tire_stiffness_front, tire_stiffness_rear
 
 
+DbcDict = dict[str, str]
+
+
+def dbc_dict(pt_dbc, radar_dbc, chassis_dbc=None, body_dbc=None) -> DbcDict:
 DbcDict = dict[str, str]
 
 
@@ -193,6 +206,7 @@ class CanBusBase:
   offset: int
 
   def __init__(self, CP, fingerprint: dict[int, dict[int, int]] | None) -> None:
+  def __init__(self, CP, fingerprint: dict[int, dict[int, int]] | None) -> None:
     if CP is None:
       assert fingerprint is not None
       num = max([k for k, v in fingerprint.items() if len(v)], default=0) // 4 + 1
@@ -220,6 +234,87 @@ class CanSignalRateCalculator:
     self.previous_value = current_value
 
     return self.rate
+
+
+@dataclass(frozen=True, kw_only=True)
+class CarSpecs:
+  mass: float  # kg, curb weight
+  wheelbase: float  # meters
+  steerRatio: float
+  centerToFrontRatio: float = 0.5
+  minSteerSpeed: float = 0.0  # m/s
+  minEnableSpeed: float = -1.0  # m/s
+  tireStiffnessFactor: float = 1.0
+
+  def override(self, **kwargs):
+    return replace(self, **kwargs)
+
+
+@dataclass(order=True)
+class PlatformConfig(Freezable):
+  car_docs: list[CarDocs]
+  specs: CarSpecs
+
+  dbc_dict: DbcDict
+
+  flags: int = 0
+
+  platform_str: str | None = None
+
+  def __hash__(self) -> int:
+    return hash(self.platform_str)
+
+  def override(self, **kwargs):
+    return replace(self, **kwargs)
+
+  def init(self):
+    pass
+
+  def __post_init__(self):
+    self.init()
+
+
+class PlatformsType(EnumType):
+  def __new__(metacls, cls, bases, classdict, *, boundary=None, _simple=False, **kwds):
+    for key in classdict._member_names.keys():
+      cfg: PlatformConfig = classdict[key]
+      cfg.platform_str = key
+      cfg.freeze()
+    return super().__new__(metacls, cls, bases, classdict, boundary=boundary, _simple=_simple, **kwds)
+
+
+class Platforms(str, ReprEnum, metaclass=PlatformsType):
+  config: PlatformConfig
+
+  def __new__(cls, platform_config: PlatformConfig):
+    member = str.__new__(cls, platform_config.platform_str)
+    member.config = platform_config
+    member._value_ = platform_config.platform_str
+    return member
+
+  @classmethod
+  def create_dbc_map(cls) -> dict[str, DbcDict]:
+    return {p: p.config.dbc_dict for p in cls}
+
+  @classmethod
+  def with_flags(cls, flags: IntFlag) -> set['Platforms']:
+    return {p for p in cls if p.config.flags & flags}
+
+  @classmethod
+  def without_flags(cls, flags: IntFlag) -> set['Platforms']:
+    return {p for p in cls if not (p.config.flags & flags)}
+
+  @classmethod
+  def print_debug(cls, flags):
+    platforms_with_flag = defaultdict(list)
+    for flag in flags:
+      for platform in cls:
+        if platform.config.flags & flag:
+          assert flag.name is not None
+          platforms_with_flag[flag.name].append(platform)
+
+    for flag, platforms in platforms_with_flag.items():
+      print(f"{flag:32s}: {', '.join(p.name for p in platforms)}")
 
 
 @dataclass(frozen=True, kw_only=True)
