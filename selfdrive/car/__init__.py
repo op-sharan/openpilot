@@ -88,11 +88,6 @@ def scale_tire_stiffness(mass, wheelbase, center_to_front, tire_stiffness_factor
 
 DbcDict = dict[str, str]
 
-
-def dbc_dict(pt_dbc, radar_dbc, chassis_dbc=None, body_dbc=None) -> DbcDict:
-DbcDict = dict[str, str]
-
-
 def dbc_dict(pt_dbc, radar_dbc, chassis_dbc=None, body_dbc=None) -> DbcDict:
   return {'pt': pt_dbc, 'radar': radar_dbc, 'chassis': chassis_dbc, 'body': body_dbc}
 
@@ -205,7 +200,6 @@ def get_safety_config(safety_model, safety_param = None):
 class CanBusBase:
   offset: int
 
-  def __init__(self, CP, fingerprint: dict[int, dict[int, int]] | None) -> None:
   def __init__(self, CP, fingerprint: dict[int, dict[int, int]] | None) -> None:
     if CP is None:
       assert fingerprint is not None
