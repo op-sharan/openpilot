@@ -66,6 +66,8 @@ static uint8_t volkswagen_pq_get_counter(const CANPacket_t *to_push) {
     counter = (uint8_t)(GET_BYTE(to_push, 1) & 0xF0U) >> 4;
   } else if (addr == MSG_GRA_NEU) {
     counter = (uint8_t)(GET_BYTE(to_push, 2) & 0xF0U) >> 4;
+  } else if (addr == MSG_GAS_SENSOR) {
+    counter = GET_BYTE(to_push, 4) & 0x0FU;
   } else {
   }
 
