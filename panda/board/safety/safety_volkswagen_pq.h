@@ -161,7 +161,7 @@ static void volkswagen_pq_rx_hook(const CANPacket_t *to_push) {
         pcm_cruise_check(cruise_engaged);
       }
     }
-    if (((addr == MSG_GAS_SENSOR) && enable_gas_interceptor) {
+    if (((addr == MSG_GAS_SENSOR) && enable_gas_interceptor)) {
       //enable_gas_interceptor = true;
       int gas_interceptor = VOLKSWAGEN_GET_INTERCEPTOR(to_push);
       gas_pressed = gas_interceptor > VOLKSWAGEN_GAS_INTERCEPTOR_THRSLD;
