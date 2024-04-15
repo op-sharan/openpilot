@@ -10,10 +10,6 @@ from openpilot.common.conversions import Conversions as CV
 from openpilot.selfdrive.car import dbc_dict, CarSpecs, DbcDict, PlatformConfig, Platforms
 from openpilot.selfdrive.car.docs_definitions import CarFootnote, CarHarness, CarDocs, CarParts, Column, \
                                                      Device
-from openpilot.common.conversions import Conversions as CV
-from openpilot.selfdrive.car import dbc_dict, CarSpecs, DbcDict, PlatformConfig, Platforms
-from openpilot.selfdrive.car.docs_definitions import CarFootnote, CarHarness, CarDocs, CarParts, Column, \
-                                                     Device
 from openpilot.selfdrive.car.fw_query_definitions import FwQueryConfig, Request, p16
 
 Ecu = car.CarParams.Ecu
@@ -45,7 +41,6 @@ class CarControllerParams:
   def __init__(self, CP):
     can_define = CANDefine(DBC[CP.carFingerprint]["pt"])
 
-    if CP.flags & VolkswagenFlags.PQ:
     if CP.flags & VolkswagenFlags.PQ:
       self.LDW_STEP = 5                   # LDW_1 message frequency 20Hz
       self.ACC_HUD_STEP = 4               # ACC_GRA_Anzeige frequency 25Hz
@@ -237,7 +232,6 @@ class Footnote(Enum):
 
 @dataclass
 class VWCarDocs(CarDocs):
-class VWCarDocs(CarDocs):
   package: str = "Adaptive Cruise Control (ACC) & Lane Assist"
   car_parts: CarParts = field(default_factory=CarParts.common([CarHarness.j533]))
 
@@ -246,7 +240,6 @@ class VWCarDocs(CarDocs):
     if "SKODA" in CP.carFingerprint:
       self.footnotes.append(Footnote.SKODA_HEATED_WINDSHIELD)
 
-    if CP.carFingerprint in (CAR.VOLKSWAGEN_CRAFTER_MK2, CAR.VOLKSWAGEN_TRANSPORTER_T61):
     if CP.carFingerprint in (CAR.VOLKSWAGEN_CRAFTER_MK2, CAR.VOLKSWAGEN_TRANSPORTER_T61):
       self.car_parts = CarParts([Device.threex_angled_mount, CarHarness.j533])
 
@@ -532,35 +525,18 @@ VOLKSWAGEN_RX_OFFSET = 0x6a
 
 FW_QUERY_CONFIG = FwQueryConfig(
   requests=[request for bus, obd_multiplexing in [(1, True), (1, False), (0, False)] for request in [
-  requests=[request for bus, obd_multiplexing in [(1, True), (1, False), (0, False)] for request in [
-    Request(
-      [VOLKSWAGEN_VERSION_REQUEST_MULTI],
-      [VOLKSWAGEN_VERSION_RESPONSE],
-      whitelist_ecus=[Ecu.srs, Ecu.eps, Ecu.fwdRadar, Ecu.fwdCamera],
-      whitelist_ecus=[Ecu.srs, Ecu.eps, Ecu.fwdRadar, Ecu.fwdCamera],
-      rx_offset=VOLKSWAGEN_RX_OFFSET,
-      bus=bus,
-      obd_multiplexing=obd_multiplexing,
-      bus=bus,
-      obd_multiplexing=obd_multiplexing,
-    ),
     Request(
       [VOLKSWAGEN_VERSION_REQUEST_MULTI],
       [VOLKSWAGEN_VERSION_RESPONSE],
       whitelist_ecus=[Ecu.engine, Ecu.transmission],
       bus=bus,
       obd_multiplexing=obd_multiplexing,
-      bus=bus,
-      obd_multiplexing=obd_multiplexing,
     ),
   ]],
   non_essential_ecus={Ecu.eps: list(CAR)},
   extra_ecus=[(Ecu.fwdCamera, 0x74f, None)],
   match_fw_to_car_fuzzy=match_fw_to_car_fuzzy,
-  ]],
-  non_essential_ecus={Ecu.eps: list(CAR)},
-  extra_ecus=[(Ecu.fwdCamera, 0x74f, None)],
-  match_fw_to_car_fuzzy=match_fw_to_car_fuzzy,
+
 )
 
 DBC = CAR.create_dbc_map()
