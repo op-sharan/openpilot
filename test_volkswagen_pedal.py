@@ -4,7 +4,7 @@ import argparse
 from panda import Panda, CanHandle, McuType
 from typing import Callable, Dict, List, Optional, Tuple
 from opendbc.can.packer import CANPacker
-from panda.tests.libpanda import libpanda_py
+#from panda.tests.libpanda import libpanda_py
 
 def crc8_pedal(data):
   crc = 0xFF    # standard init value
@@ -29,7 +29,7 @@ class CANPackerPanda(CANPacker):
     return libpanda_py.make_CANPacket(addr, bus, dat)
 
 
-packer = CANPackerPanda("vw_golf_mk4")
+#packer = CANPacker("vw_golf_mk4")
 #plain from common.py function
 def interceptor_gas_cmd1(self, gas: int):
     global packer
@@ -38,7 +38,7 @@ def interceptor_gas_cmd1(self, gas: int):
     if gas > 0:
       values["GAS_COMMAND"] = gas * 255.
       values["GAS_COMMAND2"] = gas * 255.
-    self.__class__.  += 1
+    cnt_gas_cmd  += 1
     return self.packer.make_can_msg_panda("GAS_COMMAND", 0, values)
 
 #rework from common.py function with backport to VW
@@ -56,6 +56,26 @@ def interceptor_gas_cmd(gas: int):
     values["CHECKSUM_PEDAL"] = checksum
     return packer.make_can_msg("GAS_COMMAND", 0, values)
 
+def create_gas_interceptor_command(packer, gas_amount, idx):
+  # Common gas pedal msg generator
+  enable = gas_amount > 0.001
+
+  values = {
+    "ENABLE": enable,
+    "COUNTER_PEDAL": idx & 0xF,
+  }
+
+  if enable:
+    values["GAS_COMMAND"] = gas_amount * 255.
+    values["GAS_COMMAND2"] = gas_amount * 255.
+
+  dat = packer.make_can_msg("GAS_COMMAND", 0, values)[2]
+
+  checksum = crc8_pedal(dat[:-1])
+  values["CHECKSUM_PEDAL"] = checksum
+
+  return packer.make_can_msg("GAS_COMMAND", 0, values)
+
 if __name__ == "__main__":
   parser = argparse.ArgumentParser(description='Send a gas command to the gas interceptor')
   parser.add_argument('--gas', action='store_true')
@@ -64,15 +84,21 @@ if __name__ == "__main__":
 
   p = Panda()
   p.set_safety_mode(Panda.SAFETY_ALLOUTPUT)
+  cnt_gas_cmd=0
+  packer = CANPacker("vw_golf_mk4")
 
   while 1:
     if len(p.can_recv()) == 0:
       break
 
   if args.gas:
-    interceptor_gas_cmd1(3)
-    interceptor_gas_cmd(3)
+    #interceptor_gas_cmd1(3)
+    #interceptor_gas_cmd(3)
+    addr, _, dat, bus = create_gas_interceptor_command(packer,4,cnt_gas_cmd)
+    print(addr,dat,bus)
+    p.can_send(0x200, dat, 0)
     p.send_heartbeat()
+    cnt_gas_cmd+=1
 
     #p.can_send(0x200, b"\xce\xfa\xad\xde\x1e\x0b\xb0\x02", 0)
     #exit(0)
