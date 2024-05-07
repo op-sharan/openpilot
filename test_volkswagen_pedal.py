@@ -4,7 +4,14 @@ import argparse
 from panda import Panda, CanHandle, McuType
 from typing import Callable, Dict, List, Optional, Tuple
 from opendbc.can.packer import CANPacker
-#from panda.tests.libpanda import libpanda_py
+from panda.tests.libpanda import libpanda_py
+class CANPackerPanda(CANPacker):
+  def make_can_msg_panda(self, name_or_addr, bus, values, fix_checksum=None):
+    msg = self.make_can_msg(name_or_addr, bus, values)
+    if fix_checksum is not None:
+      msg = fix_checksum(msg)
+    addr, _, dat, bus = msg
+    return libpanda_py.make_CANPacket(addr, bus, dat)
 
 def crc8_pedal(data):
   crc = 0xFF    # standard init value
@@ -39,6 +46,18 @@ def create_gas_interceptor_command(packer, gas_amount, idx):
   values["CHECKSUM_PEDAL"] = checksum
 
   return packer.make_can_msg("GAS_COMMAND", 0, values)
+def interceptor_gas_cmd(packer, gas: int):
+    #packer: CANPackerPanda
+    global cnt_gas_cmd
+    values: dict[str, float | int] = {"ENABLE": True, "COUNTER_PEDAL": cnt_gas_cmd & 0xF}
+    if gas > 0:
+      values["GAS_COMMAND"] = gas * 255.
+      values["GAS_COMMAND2"] = gas * 255.
+    cnt_gas_cmd += 1
+    dat = packer.make_can_msg("GAS_COMMAND", 0, values)[2]
+    checksum = crc8_pedal(dat[:-1])
+    values["CHECKSUM_PEDAL"] = checksum
+    return packer.make_can_msg("GAS_COMMAND", 0, values)
 
 if __name__ == "__main__":
   parser = argparse.ArgumentParser(description='Send a gas command to the gas interceptor')
@@ -49,7 +68,8 @@ if __name__ == "__main__":
   p = Panda()
   p.set_safety_mode(Panda.SAFETY_ALLOUTPUT)
   cnt_gas_cmd=0
-  packer = CANPacker("vw_golf_mk4")
+  #packer = CANPacker("vw_golf_mk4")
+  packer1 = CANPackerPanda("vw_golf_mk4")
 
   while 1:
     if len(p.can_recv()) == 0:
@@ -58,10 +78,11 @@ if __name__ == "__main__":
   #if args.gas:
     #interceptor_gas_cmd1(3)
     #interceptor_gas_cmd(3)
-    addr, _, dat, bus = create_gas_interceptor_command(packer,500,cnt_gas_cmd)
-    print(addr,dat,bus)
-    p.can_send(0x200, dat, 0)
-    p.send_heartbeat()
+    #addr, _, dat, bus = create_gas_interceptor_command(packer,1.02,cnt_gas_cmd)
+    addr, _, dat, bus = interceptor_gas_cmd(packer1,3)
+    print(addr,_, dat,bus)
+    #p.send_heartbeat()
+    #p.can_send(0x200, dat, 0)
     cnt_gas_cmd+=1
     time.sleep(0.02)
 
