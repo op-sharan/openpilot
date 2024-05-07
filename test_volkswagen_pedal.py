@@ -19,42 +19,6 @@ def crc8_pedal(data):
         crc <<= 1
   return crc
 
-cnt_gas_cmd = 0
-class CANPackerPanda(CANPacker):
-  def make_can_msg_panda(self, name_or_addr, bus, values, fix_checksum=None):
-    msg = self.make_can_msg(name_or_addr, bus, values)
-    if fix_checksum is not None:
-      msg = fix_checksum(msg)
-    addr, _, dat, bus = msg
-    return libpanda_py.make_CANPacket(addr, bus, dat)
-
-
-#packer = CANPacker("vw_golf_mk4")
-#plain from common.py function
-def interceptor_gas_cmd1(self, gas: int):
-    global packer
-    global cnt_gas_cmd
-    values: dict[str, float | int] = {"COUNTER_PEDAL": self.__class__.cnt_gas_cmd & 0xF}
-    if gas > 0:
-      values["GAS_COMMAND"] = gas * 255.
-      values["GAS_COMMAND2"] = gas * 255.
-    cnt_gas_cmd  += 1
-    return self.packer.make_can_msg_panda("GAS_COMMAND", 0, values)
-
-#rework from common.py function with backport to VW
-def interceptor_gas_cmd(gas: int):
-    #packer: CANPackerPanda
-    global packer
-    global cnt_gas_cmd
-    values: dict[str, float | int] = {"ENABLE": True, "COUNTER_PEDAL": cnt_gas_cmd & 0xF}
-    if gas > 0:
-      values["GAS_COMMAND"] = gas * 255.
-      values["GAS_COMMAND2"] = gas * 255.
-    cnt_gas_cmd += 1
-    dat = packer.make_can_msg("GAS_COMMAND", 0, values)[2]
-    checksum = crc8_pedal(dat[:-1])
-    values["CHECKSUM_PEDAL"] = checksum
-    return packer.make_can_msg("GAS_COMMAND", 0, values)
 
 def create_gas_interceptor_command(packer, gas_amount, idx):
   # Common gas pedal msg generator
@@ -91,14 +55,15 @@ if __name__ == "__main__":
     if len(p.can_recv()) == 0:
       break
 
-  if args.gas:
+  #if args.gas:
     #interceptor_gas_cmd1(3)
     #interceptor_gas_cmd(3)
-    addr, _, dat, bus = create_gas_interceptor_command(packer,4,cnt_gas_cmd)
+    addr, _, dat, bus = create_gas_interceptor_command(packer,500,cnt_gas_cmd)
     print(addr,dat,bus)
     p.can_send(0x200, dat, 0)
     p.send_heartbeat()
     cnt_gas_cmd+=1
+    time.sleep(0.02)
 
     #p.can_send(0x200, b"\xce\xfa\xad\xde\x1e\x0b\xb0\x02", 0)
     #exit(0)
