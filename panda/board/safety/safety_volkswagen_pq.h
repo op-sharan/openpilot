@@ -51,6 +51,13 @@ RxCheck volkswagen_pq_rx_checks[] = {
   {.msg = {{MSG_GRA_NEU, 0, 4, .check_checksum = true, .max_counter = 15U, .frequency = 30U}, { 0 }, { 0 }}},
   {.msg = {{MSG_GAS_SENSOR, 0, 6, .check_checksum = false, .max_counter = 15U, .frequency = 50U}, { 0 }, { 0 }}},
 };
+bool get_longitudinal_allowed(void) {
+  return controls_allowed && !gas_pressed_prev;
+}
+
+bool longitudinal_interceptor_checks(const CANPacket_t *to_send) {
+  return !get_longitudinal_allowed() && (GET_BYTE(to_send, 0) || GET_BYTE(to_send, 1));
+}
 
 static uint32_t volkswagen_pq_get_checksum(const CANPacket_t *to_push) {
   int addr = GET_ADDR(to_push);
@@ -167,6 +174,7 @@ static void volkswagen_pq_rx_hook(const CANPacket_t *to_push) {
       //enable_gas_interceptor = true;
       int gas_interceptor = VOLKSWAGEN_GET_INTERCEPTOR(to_push);
       gas_pressed = gas_interceptor > VOLKSWAGEN_GAS_INTERCEPTOR_THRSLD;
+      gas_interceptor_prev = gas_interceptor;
     }
     // Signal: Motor_3.Fahrpedal_Rohsignal
     if ((addr == MSG_MOTOR_3)&& !enable_gas_interceptor) {
@@ -212,6 +220,12 @@ static bool volkswagen_pq_tx_hook(const CANPacket_t *to_send) {
     int desired_accel = ((((GET_BYTE(to_send, 4) & 0x7U) << 8) | GET_BYTE(to_send, 3)) * 5U) - 7220U;
 
     if (longitudinal_accel_checks(desired_accel, VOLKSWAGEN_PQ_LONG_LIMITS)) {
+      tx = false;
+    }
+  }
+    // GAS: safety check (interceptor)
+  if (addr == MSG_GAS_1) {
+    if (longitudinal_interceptor_checks(to_send)) {
       tx = false;
     }
   }
