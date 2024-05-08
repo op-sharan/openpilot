@@ -245,9 +245,9 @@ def upload_handler(end_event: threading.Event) -> None:
       sm.update(0)
       metered = sm['deviceState'].networkMetered
       network_type = sm['deviceState'].networkType.raw
-      if metered and (not item.allow_cellular):
-        retry_upload(tid, end_event, False)
-        continue
+      #if metered and (not item.allow_cellular):
+      #  retry_upload(tid, end_event, False)
+      #  continue
 
       try:
         fn = item.path
