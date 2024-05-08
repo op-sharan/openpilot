@@ -74,7 +74,7 @@ class CarInterface(CarInterfaceBase):
     ret.steerLimitTimer = 0.4
     if ret.flags & VolkswagenFlags.PQ:
       ret.steerActuatorDelay = 0.2
-      ret.enableGasInterceptor = False
+      ret.enableGasInterceptor = True
       ret.autoResumeSng = False
       CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
     else:

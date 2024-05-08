@@ -116,10 +116,10 @@ def create_pedal_control(packer, bus, apply_gas, idx):
   }
 
   if enable:
-    if (apply_gas < 227):
-      apply_gas = 227
+    if (apply_gas < 430):
+      apply_gas = 430
     values["GAS_COMMAND"] = apply_gas
-    values["GAS_COMMAND2"] = apply_gas
+    values["GAS_COMMAND2"] = apply_gas//2
 
   dat = packer.make_can_msg("GAS_COMMAND", bus, values)[2]
 

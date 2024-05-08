@@ -84,15 +84,15 @@ class CarController(CarControllerBase):
       stopping = actuators.longControlState == LongCtrlState.stopping
       starting = actuators.longControlState == LongCtrlState.pid and (CS.esp_hold_confirmation or CS.out.vEgo < self.CP.vEgoStopping)
       #stopping = True if CC.longActive and CS.out.standstill and starting else stopping
-      if self.CP.enableGasInterceptor:
+      if self.CP.enableGasInterceptor and CS.out.vEgo <10:
         accel = clip(self.CP.stopAccel, self.CCP.ACCEL_MIN, self.CCP.ACCEL_MAX) if CC.longActive and starting else accel
         stopping = True if CC.longActive and starting else stopping
 
-      can_sends.extend(self.CCS.create_acc_accel_control(self.packer_pt, CANBUS.pt, CS.acc_type, CC.longActive, accel,
-                                                         acc_control, stopping, starting, CS.esp_hold_confirmation))
+      #can_sends.extend(self.CCS.create_acc_accel_control(self.packer_pt, CANBUS.pt, CS.acc_type, CC.longActive, accel,
+      #                                                   acc_control, stopping, starting, CS.esp_hold_confirmation))
       if self.CP.enableGasInterceptor:
         self.gas = 0.0
-        if CC.longActive and actuators.accel >0 and CS.out.vEgo <5:
+        if CC.longActive and actuators.accel >0 and CS.out.vEgo <10:
           speed = CS.out.vEgo
           cd = 0.31
           frontalArea = 2.3
