@@ -51,9 +51,6 @@ RxCheck volkswagen_pq_rx_checks[] = {
   {.msg = {{MSG_GRA_NEU, 0, 4, .check_checksum = true, .max_counter = 15U, .frequency = 30U}, { 0 }, { 0 }}},
   {.msg = {{MSG_GAS_SENSOR, 0, 6, .check_checksum = false, .max_counter = 15U, .frequency = 50U}, { 0 }, { 0 }}},
 };
-bool get_longitudinal_allowed(void) {
-  return controls_allowed && !gas_pressed_prev;
-}
 
 bool longitudinal_interceptor_checks(const CANPacket_t *to_send) {
   return !get_longitudinal_allowed() && (GET_BYTE(to_send, 0) || GET_BYTE(to_send, 1));
