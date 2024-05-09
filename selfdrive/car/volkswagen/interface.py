@@ -25,6 +25,7 @@ class CarInterface(CarInterfaceBase):
     ret.carName = "volkswagen"
     ret.radarUnavailable = True
     ret.enableGasInterceptor = False
+    ret.pcmCruise = not ret.enableGasInterceptor
 
     if ret.flags & VolkswagenFlags.PQ:
       # Set global PQ35/PQ46/NMS parameters
