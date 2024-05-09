@@ -17,6 +17,7 @@ class CarState(CarStateBase):
     self.esp_hold_confirmation = False
     self.upscale_lead_car_signal = False
     self.eps_stock_values = False
+    self.openpilot_enabled = False
 
   def create_button_events(self, pt_cp, buttons):
     button_events = []

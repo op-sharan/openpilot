@@ -118,9 +118,17 @@ class CarController(CarControllerBase):
 
           powerNeeded_mult = interp(CS.out.vEgo, [20 / 3.6, 40 / 3.6], [2, 1])
           powerNeeded = int(round(powerNeeded * powerNeeded_mult))
-          apply_gas = int(round(interp(powerNeeded, POWER_LOOKUP_BP, PEDAL_LOOKUP_BP)))
-          apply_gas = int(round(apply_gas * int(round(interp(speed, GAS_MULTIPLIER_BP, GAS_MULTIPLIER_V)))))
-          self.gas = apply_gas if apply_gas < 1200  else 1200
+          #apply_gas = int(round(interp(powerNeeded, POWER_LOOKUP_BP, PEDAL_LOOKUP_BP)))
+          #apply_gas = int(round(apply_gas * int(round(interp(speed, GAS_MULTIPLIER_BP, GAS_MULTIPLIER_V)))))
+          #wind_brake = interp(CS.out.vEgo, [0.0, 2.3, 35.0], [0.001, 0.002, 0.15])
+          #gas_mult = interp(CS.out.vEgo, [0., 10.], [0.4, 1.0])
+          PEDAL_SCALE = interp(CS.out.vEgo*10/36, [0.0, 3.5, 6.5], [0.6, 0.9, 0.0])
+          # offset for creep and windbrake
+          pedal_offset = interp(CS.out.vEgo*10/36, [0.0, 2.3, 6.5], [-.4, 0.0, 0.2])
+          pedal_command = PEDAL_SCALE * (actuators.accel + pedal_offset+430)*255
+          interceptor_gas_cmd = clip(pedal_command, 500, 1200)
+          self.gas = interceptor_gas_cmd
+          #self.gas = apply_gas if apply_gas < 1200  else 1200
         else:
           self.gas = 0.0
         can_sends.append(self.CCS.create_pedal_control(self.packer_pt,  CANBUS.pt, self.gas, self.frame // 2))
