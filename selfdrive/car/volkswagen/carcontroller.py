@@ -90,9 +90,9 @@ class CarController(CarControllerBase):
               self.standstill_req = True
       self.last_standstill = CS.out.standstill
 
-      if self.CP.enableGasInterceptor and CS.out.vEgo <self.CP.vEgoStopping:
-        accel = clip(self.CP.stopAccel, self.CCP.ACCEL_MIN, self.CCP.ACCEL_MAX) if CC.longActive and starting else accel
-        stopping = True if CC.longActive and starting else stopping
+      #if self.CP.enableGasInterceptor and CS.out.vEgo <self.CP.vEgoStopping:
+      #  accel = clip(self.CP.stopAccel, self.CCP.ACCEL_MIN, self.CCP.ACCEL_MAX) if CC.longActive and starting else accel
+      #  stopping = True if CC.longActive and starting else stopping
 
       can_sends.extend(self.CCS.create_acc_accel_control(self.packer_pt, CANBUS.pt, CS.acc_type, CC.longActive, accel,
                                                          acc_control, stopping, starting, CS.esp_hold_confirmation))
