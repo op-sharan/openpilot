@@ -90,7 +90,7 @@ class CarController(CarControllerBase):
               self.standstill_req = True
       self.last_standstill = CS.out.standstill
 
-      if self.CP.enableGasInterceptor and CS.out.vEgo <self.CP.vEgoStopping:
+      if self.CP.enableGasInterceptor and CS.out.vEgo <0.1:
         accel = clip(self.CP.stopAccel, self.CCP.ACCEL_MIN, self.CCP.ACCEL_MAX) if CC.longActive and starting else accel
         stopping = True if CC.longActive and starting else stopping
 
