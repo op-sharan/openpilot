@@ -98,7 +98,7 @@ class CarController(CarControllerBase):
                                                          acc_control, stopping, starting, CS.esp_hold_confirmation))
       if self.CP.enableGasInterceptor:
         self.gas = 0.0
-        if CC.longActive and actuators.accel >0 and CS.out.vEgo <10:
+        if CC.longActive and actuators.accel >0 and CS.out.vEgo <3:
           speed = CS.out.vEgo
           cd = 0.31
           frontalArea = 2.3
@@ -128,7 +128,7 @@ class CarController(CarControllerBase):
           #apply_gas = int(round(apply_gas * int(round(interp(speed, GAS_MULTIPLIER_BP, GAS_MULTIPLIER_V)))))
           #wind_brake = interp(CS.out.vEgo, [0.0, 2.3, 35.0], [0.001, 0.002, 0.15])
           #gas_mult = interp(CS.out.vEgo, [0., 10.], [0.4, 1.0])
-          PEDAL_SCALE = interp(CS.out.vEgo, [0.0, 3, 5], [0.4, 0.5, 0.0])
+          PEDAL_SCALE = interp(CS.out.vEgo, [0.0, 3, 5], [0.5, 0.6, 0.0])
           # offset for creep and windbrake
           pedal_offset = interp(CS.out.vEgo, [0.0, 2.3, 5], [-.4, 0.0, 0.2])
           pedal_command = 430 +PEDAL_SCALE * (actuators.accel + pedal_offset)*(1600-430)
