@@ -350,7 +350,7 @@ class CarState(CarStateBase):
       ("Gate_Komf_1", 10),  # From J533 CAN gateway
     ]
     if CP.enableGasInterceptor:
-      messages += [("GAS_SENSOR", 50)] 
+      messages += [("GAS_SENSOR", 50)]
 
     if CP.transmissionType == TransmissionType.automatic:
       messages += [("Getriebe_1", 100)]  # From J743 Auto transmission control module
