@@ -19,7 +19,7 @@ const LongitudinalLimits VOLKSWAGEN_PQ_LONG_LIMITS = {
   .min_accel = -3500,
   .inactive_accel = 3010,  // VW sends one increment above the max range when inactive
 };
-const int VOLKSWAGEN_GAS_INTERCEPTOR_THRSLD = 475;
+const int VOLKSWAGEN_GAS_INTERCEPTOR_THRSLD = 460;
 #define VOLKSWAGEN_GET_INTERCEPTOR(msg) (((GET_BYTE((msg), 0) << 8) + GET_BYTE((msg), 1) + (GET_BYTE((msg), 2) << 8) + GET_BYTE((msg), 3)) / 2U) // avg between 2 tracks
 
 #define MSG_LENKHILFE_3         0x0D0   // RX from EPS, for steering angle and driver steering torque
@@ -39,7 +39,7 @@ const int VOLKSWAGEN_GAS_INTERCEPTOR_THRSLD = 475;
 // Transmit of GRA_Neu is allowed on bus 0 and 2 to keep compatibility with gateway and camera integration
 const CanMsg VOLKSWAGEN_PQ_STOCK_TX_MSGS[] = {{MSG_HCA_1, 0, 5}, {MSG_LDW_1, 0, 8},
                                               {MSG_GRA_NEU, 0, 4}, {MSG_GRA_NEU, 2, 4}};
-const CanMsg VOLKSWAGEN_PQ_LONG_TX_MSGS[] =  {{MSG_HCA_1, 0, 5}, {MSG_LDW_1, 0, 8},
+const CanMsg VOLKSWAGEN_PQ_LONG_TX_MSGS[] =  {{MSG_HCA_1, 0, 5}, {MSG_LDW_1, 0, 8}, 
                                               {MSG_ACC_SYSTEM, 0, 8}, {MSG_ACC_GRA_ANZEIGE, 0, 8}, {MSG_GAS_1, 0, 6}};
 
 RxCheck volkswagen_pq_rx_checks[] = {
@@ -220,7 +220,7 @@ static bool volkswagen_pq_tx_hook(const CANPacket_t *to_send) {
       tx = false;
     }
   }
-    // GAS: safety check (interceptor)
+  // GAS: safety check (interceptor)
   if (addr == MSG_GAS_1) {
     if (longitudinal_interceptor_checks(to_send)) {
       tx = false;
