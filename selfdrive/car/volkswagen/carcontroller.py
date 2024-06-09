@@ -90,15 +90,15 @@ class CarController(CarControllerBase):
               self.standstill_req = True
       self.last_standstill = CS.out.standstill
 
-      if self.CP.enableGasInterceptor and CS.out.vEgo <0.1:
-        accel = clip(self.CP.stopAccel, self.CCP.ACCEL_MIN, self.CCP.ACCEL_MAX) if CC.longActive and starting else accel
-        #stopping = True if CC.longActive and starting else stopping
+      if self.CP.enableGasInterceptor and CS.out.vEgo < self.CP.vEgoStopping:
+        accel = clip(self.CP.stopAccel, self.CCP.ACCEL_MIN, self.CCP.ACCEL_MAX) if CC.longActive and (starting or CS.out.standstill) else accel
+        stopping = True if CC.longActive and (starting or CS.out.standstill) else stopping
 
       can_sends.extend(self.CCS.create_acc_accel_control(self.packer_pt, CANBUS.pt, CS.acc_type, CC.longActive, accel,
                                                          acc_control, stopping, starting, CS.esp_hold_confirmation))
       if self.CP.enableGasInterceptor:
         self.gas = 0.0
-        if CC.longActive and actuators.accel >0 and CS.out.vEgo <3:
+        if CC.longActive and actuators.accel >0 and CS.out.vEgo <4:
           #speed = CS.out.vEgo
           #cd = 0.31
           #frontalArea = 2.3
@@ -128,9 +128,9 @@ class CarController(CarControllerBase):
           #apply_gas = int(round(apply_gas * int(round(interp(speed, GAS_MULTIPLIER_BP, GAS_MULTIPLIER_V)))))
           #wind_brake = interp(CS.out.vEgo, [0.0, 2.3, 35.0], [0.001, 0.002, 0.15])
           #gas_mult = interp(CS.out.vEgo, [0., 10.], [0.4, 1.0])
-          PEDAL_SCALE = interp(CS.out.vEgo, [0.0, 3, 5], [0.6, 0.5, 0.0])
+          PEDAL_SCALE = interp(CS.out.vEgo, [0.0, 3, 5], [0.9, 0.5, 0.0])
           # offset for creep and windbrake
-          pedal_offset = interp(CS.out.vEgo, [0.0, 2.3, 5], [-.3, 0.0, 0.2])
+          pedal_offset = interp(CS.out.vEgo, [0.0, 2.3, 5], [-.2, 0.0, 0.2])
           pedal_command = 430 +PEDAL_SCALE * (actuators.accel + pedal_offset)*(1600-430)
           interceptor_gas_cmd = clip(pedal_command, 420, 1300)
           self.gas = interceptor_gas_cmd
