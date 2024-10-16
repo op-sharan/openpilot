@@ -102,7 +102,8 @@ class CarController(CarControllerBase):
                                                          acc_control, stopping, starting, CS.esp_hold_confirmation))
       if self.CP.enableGasInterceptor:
         self.gas = 0.0
-        if CC.longActive and actuators.accel >0 and CS.out.vEgo <4:        
+        #if CC.longActive and actuators.accel >0 and CS.out.vEgo <4:  
+        if actuators.accel >0 and CS.out.vEgo <4:        
           #speed = CS.out.vEgo
           #cd = 0.31
           #frontalArea = 2.3
