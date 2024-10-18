@@ -98,8 +98,8 @@ class CarController(CarControllerBase):
         accel = clip(self.CP.stopAccel, self.CCP.ACCEL_MIN, self.CCP.ACCEL_MAX) if CC.longActive and (starting or CS.out.standstill) else accel
         stopping = True if CC.longActive and (starting or CS.out.standstill) else stopping
 
-      can_sends.extend(self.CCS.create_acc_accel_control(self.packer_pt, CANBUS.pt, CS.acc_type, CC.longActive, accel,
-                                                         acc_control, stopping, starting, CS.esp_hold_confirmation))
+      #can_sends.extend(self.CCS.create_acc_accel_control(self.packer_pt, CANBUS.pt, CS.acc_type, CC.longActive, accel,
+      #                                                   acc_control, stopping, starting, CS.esp_hold_confirmation))
       if self.CP.enableGasInterceptor:
         self.gas = 0.0
         #if CC.longActive and actuators.accel >0 and CS.out.vEgo <4:  
@@ -143,6 +143,10 @@ class CarController(CarControllerBase):
         else:
           self.gas = 0.0
         can_sends.append(self.CCS.create_pedal_control(self.packer_pt,  CANBUS.pt, self.gas, self.frame // 2))
+
+      can_sends.extend(self.CCS.create_acc_accel_control(self.packer_pt, CANBUS.pt, CS.acc_type, CC.longActive, accel,
+                                                         acc_control, stopping, starting, CS.esp_hold_confirmation))
+      
     # **** HUD Controls ***************************************************** #
 
     if self.frame % self.CCP.LDW_STEP == 0:
