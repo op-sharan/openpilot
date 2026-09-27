@@ -11,6 +11,8 @@ from openpilot.common.constants import CV
 from opendbc.car.honda.interface import CarInterface
 from opendbc.car.honda.values import CAR
 from opendbc.car.gm.values import CAR as GM_CAR, GMFlags
+from opendbc.car.hyundai.interface import CarInterface as HyundaiCarInterface
+from opendbc.car.hyundai.values import CAR as HYUNDAI_CAR
 from opendbc.car.ford.interface import CarInterface as FordCarInterface
 from opendbc.car.ford.values import CAR as FORD_CAR
 from opendbc.car.toyota.interface import CarInterface as ToyotaCarInterface
@@ -39,6 +41,8 @@ from openpilot.selfdrive.controls.lib.longitudinal_vehicle_tunes import (
   get_honda_accord_lead_departure_tune,
   get_honda_accord_stop_go_accel_cap,
   get_honda_crv_5g_stopped_lead_obstacle_bias,
+  get_kia_ev9_stopped_lead_obstacle_bias,
+  get_stopped_lead_obstacle_bias,
   get_honda_crv_5g_low_speed_stopped_lead_cap,
   allow_honda_crv_5g_vision_gap_settle,
   is_honda_crv_5g_early_radar_follow_lead,
@@ -160,6 +164,25 @@ def test_honda_crv_5g_stopped_lead_tune_is_vehicle_specific():
   assert allow_honda_crv_5g_vision_gap_settle(crv)
   assert not allow_honda_crv_5g_vision_gap_settle(civic)
   assert get_standstill_gap_settle_max_extra_gap(crv) > get_standstill_gap_settle_max_extra_gap(civic)
+
+
+def test_kia_ev9_stopped_lead_buffer_is_low_speed_and_vehicle_specific():
+  ev9 = HyundaiCarInterface.get_non_essential_params(HYUNDAI_CAR.KIA_EV9)
+  other = HyundaiCarInterface.get_non_essential_params(HYUNDAI_CAR.KIA_EV6)
+  prius = ToyotaCarInterface.get_non_essential_params(TOYOTA_CAR.TOYOTA_PRIUS)
+  stopped_lead = make_lead(status=True, d_rel=6.8, v_lead=0.1, model_prob=0.99)
+
+  bias = get_kia_ev9_stopped_lead_obstacle_bias(ev9, stopped_lead, v_ego=3.0)
+  assert bias == pytest.approx(1.5)
+  assert get_kia_ev9_stopped_lead_obstacle_bias(other, stopped_lead, v_ego=3.0) == pytest.approx(0.0)
+  assert get_kia_ev9_stopped_lead_obstacle_bias(ev9, stopped_lead, v_ego=8.0) == pytest.approx(0.0)
+  assert get_stopped_lead_obstacle_bias(ev9, stopped_lead, v_ego=3.0, mode="blended") == pytest.approx(1.5)
+  assert get_stopped_lead_obstacle_bias(other, stopped_lead, v_ego=3.0, mode="blended") == pytest.approx(0.0)
+  assert get_stopped_lead_obstacle_bias(prius, stopped_lead, v_ego=3.0, mode="blended") == pytest.approx(0.0)
+  assert get_stopped_lead_obstacle_bias(prius, stopped_lead, v_ego=3.0, mode="acc") > 0.0
+  assert get_kia_ev9_stopped_lead_obstacle_bias(
+    ev9, make_lead(status=True, d_rel=6.8, v_lead=2.0), v_ego=3.0,
+  ) == pytest.approx(0.0)
 
 
 def test_honda_crv_5g_early_radar_follow_admits_high_closing_centered_lead():

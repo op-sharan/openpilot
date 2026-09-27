@@ -101,6 +101,13 @@ HONDA_CRV_5G_STOPPED_LEAD_MIN_CLOSING_SPEED = 0.15
 HONDA_CRV_5G_STOPPED_LEAD_MAX_DISTANCE = 80.0
 HONDA_CRV_5G_STOPPED_LEAD_RAMP_DISTANCE = 10.0
 HONDA_CRV_5G_STOPPED_LEAD_MAX_LATERAL_OFFSET = 1.75
+KIA_EV9_STOPPED_LEAD_OBSTACLE_BIAS_M = 1.5
+KIA_EV9_STOPPED_LEAD_MAX_EGO_SPEED = 4.5
+KIA_EV9_STOPPED_LEAD_MAX_SPEED = 0.5
+KIA_EV9_STOPPED_LEAD_MIN_CLOSING_SPEED = 0.15
+KIA_EV9_STOPPED_LEAD_MAX_DISTANCE = 30.0
+KIA_EV9_STOPPED_LEAD_RAMP_DISTANCE = 8.0
+KIA_EV9_STOPPED_LEAD_MAX_LATERAL_OFFSET = 1.75
 HONDA_CRV_5G_LOW_SPEED_STOP_MAX_EGO_SPEED = 4.5
 HONDA_CRV_5G_LOW_SPEED_STOP_MAX_LEAD_SPEED = 0.5
 HONDA_CRV_5G_LOW_SPEED_STOP_MIN_MODEL_PROB = 0.99
@@ -239,6 +246,45 @@ def get_honda_crv_5g_stopped_lead_obstacle_bias(CP, lead, v_ego):
   )
   bias = HONDA_CRV_5G_STOPPED_LEAD_OBSTACLE_BIAS_M * strength
   return float(min(bias, max(distance - 0.5, 0.0)))
+
+
+def get_kia_ev9_stopped_lead_obstacle_bias(CP, lead, v_ego):
+  if (
+    getattr(CP, "brand", "") != "hyundai" or
+    str(getattr(CP, "carFingerprint", "")) != "KIA_EV9" or
+    lead is None or not bool(getattr(lead, "status", False)) or
+    float(v_ego) <= 0.0 or float(v_ego) > KIA_EV9_STOPPED_LEAD_MAX_EGO_SPEED or
+    float(getattr(lead, "vLead", 0.0)) > KIA_EV9_STOPPED_LEAD_MAX_SPEED or
+    abs(float(getattr(lead, "yRel", 0.0))) > KIA_EV9_STOPPED_LEAD_MAX_LATERAL_OFFSET
+  ):
+    return 0.0
+
+  distance = float(getattr(lead, "dRel", float("inf")))
+  closing_speed = float(v_ego) - float(getattr(lead, "vLead", 0.0))
+  if (
+    distance <= 0.0 or distance > KIA_EV9_STOPPED_LEAD_MAX_DISTANCE or
+    closing_speed < KIA_EV9_STOPPED_LEAD_MIN_CLOSING_SPEED
+  ):
+    return 0.0
+
+  strength = np.clip(
+    (KIA_EV9_STOPPED_LEAD_MAX_DISTANCE - distance) /
+    (KIA_EV9_STOPPED_LEAD_MAX_DISTANCE - KIA_EV9_STOPPED_LEAD_RAMP_DISTANCE),
+    0.0, 1.0,
+  )
+  bias = KIA_EV9_STOPPED_LEAD_OBSTACLE_BIAS_M * strength
+  return float(min(bias, max(distance - 0.5, 0.0)))
+
+
+def get_stopped_lead_obstacle_bias(CP, lead, v_ego, mode):
+  """Dispatch vehicle-specific stopped-lead spacing tweaks for the active mode."""
+  mode_bias = 0.0
+  if mode == "acc":
+    mode_bias = max(
+      get_toyota_prius_stopped_lead_obstacle_bias(CP, lead, v_ego),
+      get_honda_crv_5g_stopped_lead_obstacle_bias(CP, lead, v_ego),
+    )
+  return max(mode_bias, get_kia_ev9_stopped_lead_obstacle_bias(CP, lead, v_ego))
 
 
 def get_honda_crv_5g_low_speed_stopped_lead_cap(CP, lead, v_ego, accel_min):
