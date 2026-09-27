@@ -73,7 +73,9 @@ class StarPilotCard:
     self.g70_main_cruise_aol_pending_frames = 0
     self.prev_cruise_available = None
     self.prev_active = False
+    self.prev_brake_pressed = False
     self.prev_cruise_enabled = False
+    self.tesla_aol_brake_disengaged = False
     self.decel_pressed = False
     self.cancelPressed_previously = False
     self.cancel_pulse_glide_suppressed = False
@@ -161,9 +163,17 @@ class StarPilotCard:
   def _toggle_controller_aol(self, carState, starpilot_toggles):
     if not self.always_on_lateral_supported or not getattr(starpilot_toggles, "always_on_lateral", False):
       return False
+    tesla_disengage_on_brake = (
+      self.CP.brand == "tesla" and
+      getattr(starpilot_toggles, "tesla_aol_disengage_on_brake", False)
+    )
+    if tesla_disengage_on_brake and not self.always_on_lateral_allowed and carState.brakePressed:
+      return False
     if self.hyundai_aol_needs_engagement:
       self.hyundai_aol_ready = True
     self.always_on_lateral_allowed = not self.always_on_lateral_allowed
+    if tesla_disengage_on_brake and self.always_on_lateral_allowed:
+      self.tesla_aol_brake_disengaged = False
     if carState.cruiseState.enabled or self.pause_lateral:
       self.pause_lateral = not self.always_on_lateral_allowed
     return True
@@ -260,6 +270,12 @@ class StarPilotCard:
       and starpilot_toggles.main_cruise_aol_toggle
     )
     forte_main_cruise_aol_managed = self.kia_forte_non_scc and starpilot_toggles.main_cruise_aol_toggle
+    tesla_disengage_on_brake = (
+      self.CP.brand == "tesla" and
+      getattr(starpilot_toggles, "tesla_aol_disengage_on_brake", False)
+    )
+    if not tesla_disengage_on_brake:
+      self.tesla_aol_brake_disengaged = False
 
     if carState.gearShifter in NON_DRIVING_GEARS or not g70_main_cruise_aol_managed:
       self.g70_main_cruise_aol_pending = False
@@ -335,12 +351,23 @@ class StarPilotCard:
 
     # On rising edge of engagement (SET press enabling lat+long), auto-enable AOL
     # so that lateral persists when braking disengages longitudinal
-    if sm["selfdriveState"].active and not self.prev_active and self.always_on_lateral_set and starpilot_toggles.always_on_lateral_lkas:
+    engagement_started = sm["selfdriveState"].active and not self.prev_active
+    if (engagement_started and self.always_on_lateral_set and
+        (starpilot_toggles.always_on_lateral_lkas or tesla_disengage_on_brake)):
       if hyundai_aol_needs_engagement:
         self.hyundai_aol_ready = True
+      self.tesla_aol_brake_disengaged = False
       self.always_on_lateral_allowed = True
 
+    if (tesla_disengage_on_brake and carState.brakePressed and not self.prev_brake_pressed and
+        self.always_on_lateral_set):
+      self.tesla_aol_brake_disengaged = True
+
+    if self.tesla_aol_brake_disengaged:
+      self.always_on_lateral_allowed = False
+
     self.prev_active = sm["selfdriveState"].active
+    self.prev_brake_pressed = carState.brakePressed
     self.prev_cruise_enabled = carState.cruiseState.enabled
     self.prev_cruise_available = carState.cruiseState.available
 

@@ -70,6 +70,7 @@ def make_toggles(**overrides):
     "always_on_lateral_lkas": False,
     "always_on_lateral_main": False,
     "always_on_lateral_pause_speed": 0.0,
+    "tesla_aol_disengage_on_brake": False,
     "bookmark_via_cancel": False,
     "bookmark_via_cancel_long": False,
     "bookmark_via_cancel_very_long": False,
@@ -1167,6 +1168,118 @@ def test_hyundai_main_aol_persists_after_brake_disengage_without_manual_aol_butt
   sm["selfdriveState"].active = False
   disengaged_state = make_car_state(available=True, enabled=False)
   ret = card.update(disengaged_state, starpilot_car_state, sm, toggles)
+
+  assert ret.alwaysOnLateralAllowed is True
+  assert ret.alwaysOnLateralEnabled is True
+
+
+def test_tesla_aol_disengages_on_brake_until_deliberate_reengagement(monkeypatch, tmp_path):
+  monkeypatch.setattr(spc, "Params", FakeParams)
+  monkeypatch.setattr(spc, "ERROR_LOGS_PATH", tmp_path)
+
+  card = spc.StarPilotCard(
+    SimpleNamespace(brand="tesla", carFingerprint="TESLA_MODEL_Y", pcmCruise=True),
+    SimpleNamespace(alternativeExperience=spc.ALTERNATIVE_EXPERIENCE.ALWAYS_ON_LATERAL),
+  )
+  sm = make_sm()
+  toggles = make_toggles(
+    always_on_lateral=True,
+    always_on_lateral_main=True,
+    tesla_aol_disengage_on_brake=True,
+  )
+  starpilot_car_state = SimpleNamespace(distancePressed=False)
+
+  sm["selfdriveState"].active = True
+  ret = card.update(make_car_state(available=True, enabled=True), starpilot_car_state, sm, toggles)
+  assert ret.alwaysOnLateralEnabled is True
+
+  sm["selfdriveState"].active = False
+  ret = card.update(
+    make_car_state(available=True, brake_pressed=True), starpilot_car_state, sm, toggles,
+  )
+  assert ret.alwaysOnLateralAllowed is False
+  assert ret.alwaysOnLateralEnabled is False
+
+  ret = card.update(
+    make_car_state(available=True, gas_pressed=True), starpilot_car_state, sm, toggles,
+  )
+  assert ret.alwaysOnLateralAllowed is False
+  assert ret.alwaysOnLateralEnabled is False
+
+  sm["selfdriveState"].active = True
+  ret = card.update(make_car_state(available=True, enabled=True), starpilot_car_state, sm, toggles)
+  assert ret.alwaysOnLateralAllowed is True
+  assert ret.alwaysOnLateralEnabled is True
+
+
+def test_tesla_aol_can_be_manually_reenabled_after_brake_release(monkeypatch, tmp_path):
+  monkeypatch.setattr(spc, "Params", FakeParams)
+  monkeypatch.setattr(spc, "ERROR_LOGS_PATH", tmp_path)
+
+  card = spc.StarPilotCard(
+    SimpleNamespace(brand="tesla", carFingerprint="TESLA_MODEL_3", pcmCruise=True),
+    SimpleNamespace(alternativeExperience=spc.ALTERNATIVE_EXPERIENCE.ALWAYS_ON_LATERAL),
+  )
+  sm = make_sm()
+  toggles = make_toggles(
+    always_on_lateral=True,
+    always_on_lateral_main=True,
+    tesla_aol_disengage_on_brake=True,
+  )
+  starpilot_car_state = SimpleNamespace(distancePressed=False)
+
+  card.update(make_car_state(available=True), starpilot_car_state, sm, toggles)
+  card.update(make_car_state(available=True, brake_pressed=True), starpilot_car_state, sm, toggles)
+  released_state = make_car_state(available=True)
+  card.update(released_state, starpilot_car_state, sm, toggles)
+
+  assert card._toggle_controller_aol(released_state, toggles) is True
+  ret = card.update(released_state, starpilot_car_state, sm, toggles)
+  assert ret.alwaysOnLateralAllowed is True
+  assert ret.alwaysOnLateralEnabled is True
+
+
+def test_tesla_aol_cannot_be_reenabled_while_brake_is_held(monkeypatch, tmp_path):
+  monkeypatch.setattr(spc, "Params", FakeParams)
+  monkeypatch.setattr(spc, "ERROR_LOGS_PATH", tmp_path)
+
+  card = spc.StarPilotCard(
+    SimpleNamespace(brand="tesla", carFingerprint="TESLA_MODEL_Y", pcmCruise=True),
+    SimpleNamespace(alternativeExperience=spc.ALTERNATIVE_EXPERIENCE.ALWAYS_ON_LATERAL),
+  )
+  toggles = make_toggles(
+    always_on_lateral=True,
+    always_on_lateral_main=True,
+    tesla_aol_disengage_on_brake=True,
+  )
+  starpilot_car_state = SimpleNamespace(distancePressed=False)
+  brake_state = make_car_state(available=True, brake_pressed=True)
+
+  card.update(make_car_state(available=True), starpilot_car_state, make_sm(), toggles)
+  card.update(brake_state, starpilot_car_state, make_sm(), toggles)
+
+  assert card._toggle_controller_aol(brake_state, toggles) is False
+  assert card.always_on_lateral_allowed is False
+
+
+def test_tesla_brake_disengage_toggle_does_not_change_other_brands(monkeypatch, tmp_path):
+  monkeypatch.setattr(spc, "Params", FakeParams)
+  monkeypatch.setattr(spc, "ERROR_LOGS_PATH", tmp_path)
+
+  card = spc.StarPilotCard(
+    SimpleNamespace(brand="gm"),
+    SimpleNamespace(alternativeExperience=spc.ALTERNATIVE_EXPERIENCE.ALWAYS_ON_LATERAL),
+  )
+  toggles = make_toggles(
+    always_on_lateral=True,
+    always_on_lateral_main=True,
+    tesla_aol_disengage_on_brake=True,
+  )
+  starpilot_car_state = SimpleNamespace(distancePressed=False)
+
+  card.update(make_car_state(available=True), starpilot_car_state, make_sm(), toggles)
+  card.update(make_car_state(available=True, brake_pressed=True), starpilot_car_state, make_sm(), toggles)
+  ret = card.update(make_car_state(available=True), starpilot_car_state, make_sm(), toggles)
 
   assert ret.alwaysOnLateralAllowed is True
   assert ret.alwaysOnLateralEnabled is True
