@@ -302,7 +302,7 @@ class StarPilotLateralLayout(_SettingsPage):
         "SteerKP", "value", tr_noop("Kp Factor"),
         subtitle=tr_noop("How strongly openpilot corrects lateral position."),
         get_value=lambda: f"{p.get_float('SteerKP'):.2f}",
-        on_click=lambda: self._show_slider("SteerKP", max(0.01, cs.steerKp) * 0.5, max(0.01, cs.steerKp) * 1.5, step=0.01, value_type="float"),
+        on_click=lambda: self._show_slider("SteerKP", max(0.01, cs.steerKp) * 0.5, max(0.01, cs.steerKp) * 3.0, step=0.01, value_type="float"),
         visible=lambda: alt_on() and cs.steerKp != 0 and cs.isTorqueCar and not cs.isAngleCar,
       ),
       SettingRow(

@@ -154,7 +154,7 @@ export function numericBounds(param, values = {}) {
   }
   if (param.key === "SteerKP") {
     const base = toFinite(values?.SteerKPStock) || toFinite(values?.SteerKP) || 0.6
-    return { min: +(base * 0.5).toFixed(2), max: +(base * 1.5).toFixed(2), step: 0.01 }
+    return { min: +(base * 0.5).toFixed(2), max: +(base * 3.0).toFixed(2), step: 0.01 }
   }
   if (param.key === "SteerLatAccel") {
     const base = toFinite(values?.SteerLatAccelStock) || toFinite(values?.SteerLatAccel) || 2.0
