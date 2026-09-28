@@ -94,13 +94,18 @@ def device_capabilities(uuids: list[str] | tuple[str, ...], bluetooth_class: int
   return audio, controller
 
 
+def is_phone(bluetooth_class: int = 0, icon: str = "") -> bool:
+  # Phones are listed so they can be paired as a GPS source for phone_gpsd.
+  return ((int(bluetooth_class) >> 8) & 0x1F) == 0x02 or icon == "phone"
+
+
 def show_pairing_device(address: str, name: str, paired: bool, trusted: bool, connected: bool, blocked: bool,
-                        audio: bool, controller: bool, discovering: bool = False) -> bool:
+                        audio: bool, controller: bool, discovering: bool = False, phone: bool = False) -> bool:
   known = paired or trusted or connected
   normalized_address = "".join(character for character in address.upper() if character.isalnum())
   normalized_name = "".join(character for character in name.upper() if character.isalnum())
   named = bool(name) and name != "Unknown device" and normalized_name != normalized_address
-  return known or (named and not blocked and (audio or controller))
+  return known or (named and not blocked and (audio or controller or phone))
 
 
 class _DesktopFakeBluetooth:

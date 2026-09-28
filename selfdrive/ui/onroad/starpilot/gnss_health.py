@@ -6,8 +6,11 @@ with it plugged in that collapses to 0% while the tracked satellite count actual
 satellite counts are therefore misleading on their own - the demodulation rate and C/No are what
 show whether a cable, ferrite or antenna placement change helped.
 """
+import time
+
 import pyray as rl
 
+from cereal import log
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.application import gui_app, FontWeight
 from openpilot.system.ui.lib.text_measure import measure_text_cached
@@ -37,6 +40,9 @@ CNO_WARN = 800.0
 # Right edges already match mathematically; this is a small optical correction for "R"'s shape.
 SATS_OPTICAL_NUDGE = 3
 
+# gpsLocation arrives at ~1Hz; older than this means nothing is publishing a fix any more.
+FIX_STALE_S = 2.0
+
 
 def _grade(value: float, good: float, warn: float) -> rl.Color:
   if value >= good:
@@ -56,15 +62,22 @@ class GnssHealth:
     self._gps_sv = 0
     self._glonass_sv = 0
     self._has_fix = False
+    self._phone_fix = False
 
   def _update(self) -> None:
     sm = ui_state.sm
 
     # qcomgpsd publishes gpsLocation; gpsLocationExternal is only used by ublox/car-GPS devices,
     # so checking that socket alone leaves hasFix stuck False on this hardware.
+    # qcomgpsd publishes nothing while it has neither its own fix nor a phone fix, so a stale message
+    # (rather than a fresh fixless one) is how "no fix" usually shows up - don't keep showing the last fix.
+    self._has_fix = False
+    self._phone_fix = False
     for service in ("gpsLocation", "gpsLocationExternal"):
       if sm.valid.get(service, False) and sm.recv_frame[service] > 0:
-        self._has_fix = sm[service].hasFix
+        fresh = time.monotonic() - sm.recv_time[service] < FIX_STALE_S
+        self._has_fix = fresh and sm[service].hasFix
+        self._phone_fix = self._has_fix and sm[service].source == log.GpsLocationData.SensorSource.android
         break
 
     if not sm.valid.get("qcomGnss", False):
@@ -119,8 +132,9 @@ class GnssHealth:
     ty = int(y + PADDING)
 
     rl.draw_text_ex(self._font, "GNSS", rl.Vector2(tx, ty), TITLE_SIZE, 0, _LABEL)
-    fix_text = "FIX" if self._has_fix else "NO FIX"
-    fix_color = _GOOD if self._has_fix else _BAD
+    # A phone fix is shown in amber: the car has a position, but the comma's own receiver still doesn't.
+    fix_text = "PHONE FIX" if self._phone_fix else ("FIX" if self._has_fix else "NO FIX")
+    fix_color = _WARN if self._phone_fix else (_GOOD if self._has_fix else _BAD)
     fix_width = measure_text_cached(self._font, fix_text, TITLE_SIZE).x
     rl.draw_text_ex(self._font, fix_text, rl.Vector2(right - fix_width, ty), TITLE_SIZE, 0, fix_color)
 

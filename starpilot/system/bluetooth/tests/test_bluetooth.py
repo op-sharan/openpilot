@@ -9,7 +9,7 @@ from openpilot.starpilot.system.bluetooth.audio import BluetoothAudioSink
 from openpilot.starpilot.system.bluetooth.bluez import PairingAgent
 from openpilot.starpilot.system.bluetooth.daemon import BluetoothController
 from openpilot.starpilot.system.bluetooth.protocol import (A2DP_SINK_UUID, HID_UUID, BluetoothClient, BluetoothDevice, BluetoothStatus,
-                                                           device_capabilities, show_pairing_device)
+                                                           device_capabilities, is_phone, show_pairing_device)
 from openpilot.system import hardware
 from openpilot.system.ui.lib.bluetooth_manager import BluetoothManager
 
@@ -186,6 +186,16 @@ def test_pairing_list_filters_anonymous_and_irrelevant_advertisements():
   assert show_pairing_device("00:11:22:33:44:55", "Media Remote", False, False, False, False, False, True, True)
   assert not show_pairing_device("00:11:22:33:44:55", "Nearby sensor", False, False, False, False, False, False, True)
   assert show_pairing_device("00:11:22:33:44:55", "Known device", True, True, False, False, False, False)
+  # Phones are listed so they can be paired as the phone_gpsd GPS source.
+  assert show_pairing_device("00:11:22:33:44:55", "Pixel 8 Pro", False, False, False, False, False, False, True, phone=True)
+  assert not show_pairing_device("00:11:22:33:44:55", "Pixel 8 Pro", False, False, False, True, False, False, True, phone=True)
+
+
+def test_phone_detection():
+  assert is_phone(0x5A020C)  # smartphone: major class 0x02
+  assert is_phone(icon="phone")
+  assert not is_phone(0x240404)  # headset: major class 0x04
+  assert not is_phone()
 
 
 def test_desktop_fake_bluetooth_is_stateful_and_interactive(monkeypatch, tmp_path):
