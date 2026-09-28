@@ -6724,6 +6724,12 @@ def setup(app):
       if key == "RivianAngleControl":
         response["message"] = "Rivian steering mode updated. The safe channel handoff is in progress."
       updated = {}
+      if key in {
+        "BelowSteerSpeedVolume", "DisengageVolume", "EngageVolume", "PromptVolume",
+        "PromptDistractedVolume", "RefuseVolume", "WarningImmediateVolume", "WarningSoftVolume",
+      }:
+        _, value_types = _get_param_type_info()
+        updated[key] = _get_current_param_value(key, value_types.get(key, int), _get_default_param_values())
       if key in PANDA_FIRMWARE_TOGGLE_KEYS:
         threading.Thread(target=_flash_panda_then_reboot, daemon=True).start()
         response["message"] = f"Parameter '{key}' updated successfully. Panda flashing started; device will reboot when finished."
