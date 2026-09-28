@@ -79,7 +79,11 @@ class UIState:
         "liveDelay",
         "liveTorqueParameters",
       ],
-      drain_services=["carState"],
+      # qcomGnss interleaves measurementReport/drMeasurementReport/drSvPoly in tight ~8-message
+      # bursts (see gnss_health.py); without draining, the conflated socket hands the UI whichever
+      # variant happened to be queued last at poll time, so measurementReport - the one carrying
+      # per-satellite status - gets silently skipped on most frames and the readout looks stuck.
+      drain_services=["carState", "qcomGnss"],
     )
 
     self.prime_state = PrimeState()

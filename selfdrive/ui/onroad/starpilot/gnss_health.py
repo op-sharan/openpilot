@@ -67,37 +67,44 @@ class GnssHealth:
         self._has_fix = sm[service].hasFix
         break
 
-    # qcomGnss multiplexes measurement/drMeasurement/svPoly, so only act on the variant that
-    # carries per-satellite status rather than returning early on the others.
     if not sm.valid.get("qcomGnss", False):
       return
 
-    gnss = sm["qcomGnss"]
-    if gnss.which() != "measurementReport":
-      return
+    # qcomGnss fires measurementReport/drSvPoly/drMeasurementReport in tight ~8-message bursts,
+    # multiple times a second (see the drain_services comment in ui_state.py). A plain sm["qcomGnss"]
+    # read only sees whichever variant landed last in the conflated socket, so measurementReport -
+    # the one variant that actually carries per-satellite status - was getting skipped on most
+    # frames and the readout looked stuck. qcomGnss is drained specifically so every message in
+    # each burst is visible here; walk the whole batch instead of just the latest one.
+    for msg in sm.drained.get("qcomGnss", []):
+      if msg.which() != "qcomGnss":
+        continue
+      gnss = msg.qcomGnss
+      if gnss.which() != "measurementReport":
+        continue
 
-    report = gnss.measurementReport
-    svs = list(report.sv)
-    source = str(report.source)
+      report = gnss.measurementReport
+      svs = list(report.sv)
+      source = str(report.source)
 
-    # The two constellations arrive as separate reports at ~1Hz each. satelliteTimeIsKnown is only
-    # meaningful for GPS here - the modem leaves it clear on GLONASS satellites and reports their
-    # validity through the glonass* bits instead - so tracking one shared percentage made the
-    # readout flip between 100% and 0% twice a second.
-    is_glonass = "glonass" in source
-    if is_glonass:
-      self._glonass_sv = len(svs)
-    else:
-      self._gps_sv = len(svs)
+      # The two constellations arrive as separate reports. satelliteTimeIsKnown is only meaningful
+      # for GPS here - the modem leaves it clear on GLONASS satellites and reports their validity
+      # through the glonass* bits instead - so tracking one shared percentage made the readout flip
+      # between 100% and 0% depending on which constellation's report was read last.
+      is_glonass = "glonass" in source
+      if is_glonass:
+        self._glonass_sv = len(svs)
+      else:
+        self._gps_sv = len(svs)
 
-    if svs and not is_glonass:
-      known = sum(1 for sv in svs if sv.measurementStatus.satelliteTimeIsKnown)
-      self._sat_time_pct = 100.0 * known / len(svs)
+      if svs and not is_glonass:
+        known = sum(1 for sv in svs if sv.measurementStatus.satelliteTimeIsKnown)
+        self._sat_time_pct = 100.0 * known / len(svs)
 
-    if svs:
-      noise = [sv.carrierNoise for sv in svs if sv.carrierNoise > 0]
-      if noise:
-        self._cno = sum(noise) / len(noise)
+      if svs:
+        noise = [sv.carrierNoise for sv in svs if sv.carrierNoise > 0]
+        if noise:
+          self._cno = sum(noise) / len(noise)
 
   def render(self, bounds: rl.Rectangle) -> None:
     self._update()
