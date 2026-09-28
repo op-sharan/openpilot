@@ -76,6 +76,7 @@ class ModelRenderer(Widget):
     self._adjacent_path_vertices = [np.empty((0, 2), dtype=np.float32), np.empty((0, 2), dtype=np.float32)]
     # Outer path polygon for edge rendering
     self._track_edge_vertices = np.empty((0, 2), dtype=np.float32)
+    self._path_edge_width = 0.0
 
     # Initialize ModelPoints objects
     self._path = ModelPoints()
@@ -253,6 +254,8 @@ class ModelRenderer(Widget):
         path_width *= 0.75
       else:
         path_width *= 0.50
+
+    self._path_edge_width = path_width * path_edge_width_pct
 
     unclipped_max_distance = np.clip(path_x_array[-1], MIN_DRAW_DISTANCE, MAX_DRAW_DISTANCE)
     unclipped_max_idx = self._get_path_length_idx(self._lane_lines[0].raw_points[:, 0], unclipped_max_distance)
