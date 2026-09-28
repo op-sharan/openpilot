@@ -52,6 +52,7 @@ class StarPilotOnroadView(AugmentedRoadView):
       ui_state.ui_params,
       ui_state.params_memory,
       self._favorite_slot_options,
+      cache_render_texture=gui_app.cached_render_texture,
     )
     self._favorite_input_consumed = False
 
