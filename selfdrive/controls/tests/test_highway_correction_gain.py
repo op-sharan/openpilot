@@ -1,0 +1,108 @@
+import math
+
+import numpy as np
+
+from openpilot.common.realtime import DT_CTRL
+from openpilot.selfdrive.controls.lib.highway_correction_gain import HighwayCorrectionGain
+
+
+_V_HWY = 31.0  # ~70 mph
+
+
+def _run(hcg, curvature, gain=0.7, v_ego=_V_HWY, lat_active=True, bypass=None):
+  bypass = np.zeros(len(curvature), bool) if bypass is None else bypass
+  return np.array([hcg.update(float(c), v_ego, lat_active, gain, bool(b)) for c, b in zip(curvature, bypass, strict=True)])
+
+
+def _weave(seconds=30.0, freq=0.6, lat_accel_amp=0.08, v_ego=_V_HWY, bias=0.0):
+  t = np.arange(0.0, seconds, DT_CTRL)
+  return bias + (lat_accel_amp / v_ego ** 2) * np.sin(2 * math.pi * freq * t)
+
+
+def _fit_sine(x, freq):
+  t = np.arange(len(x)) * DT_CTRL
+  basis = np.c_[np.sin(2 * math.pi * freq * t), np.cos(2 * math.pi * freq * t), np.ones(len(x))]
+  (s, c, _), *_ = np.linalg.lstsq(basis, x, rcond=None)
+  return math.hypot(s, c), math.atan2(c, s)
+
+
+def test_gain_one_is_exact_pass_through():
+  raw = _weave(bias=0.1 / _V_HWY ** 2)
+  np.testing.assert_array_equal(_run(HighwayCorrectionGain(), raw, gain=1.0), raw)
+
+
+def test_weave_band_scaled_by_gain_with_little_lag():
+  for freq in (0.4, 0.6, 0.8):
+    raw = _weave(freq=freq)
+    out = _run(HighwayCorrectionGain(), raw, gain=0.7)
+    tail = slice(len(raw) // 2, None)  # after the bypass fade-in and baseline settle
+    amp_in, ph_in = _fit_sine(raw[tail], freq)
+    amp_out, ph_out = _fit_sine(out[tail], freq)
+    assert 0.68 < amp_out / amp_in < 0.76, freq
+    lag_deg = math.degrees((ph_in - ph_out + math.pi) % (2 * math.pi) - math.pi)
+    assert 0.0 <= lag_deg < 8.0, (freq, lag_deg)  # a gain, not a low-pass: the 0.3 s smoother lagged ~50 deg
+
+
+def test_steady_offset_passes_unchanged():
+  bias = 0.15 / _V_HWY ** 2  # slight lane-keeping bias / crown, below the curve gate
+  raw = np.full(int(30 / DT_CTRL), bias)
+  out = _run(HighwayCorrectionGain(), raw, gain=0.5)
+  np.testing.assert_allclose(out[-100:], bias, rtol=1e-6)  # baseline settled (e^-20 after 30 s)
+
+
+def test_curves_pass_through():
+  raw = _weave(bias=1.0 / _V_HWY ** 2)  # 1 m/s^2 highway curve with the same wobble on top
+  out = _run(HighwayCorrectionGain(), raw, gain=0.5)
+  np.testing.assert_allclose(out, raw, rtol=0, atol=1e-12)
+
+
+def test_curve_entry_is_not_delayed_much():
+  # 5 s straight, then ramp to 1.2 m/s^2 over 2 s and hold
+  t = np.arange(0.0, 12.0, DT_CTRL)
+  lat = np.interp(t, [0, 5, 7, 12], [0, 0, 1.2, 1.2])
+  raw = lat / _V_HWY ** 2
+  out = _run(HighwayCorrectionGain(), raw, gain=0.5)
+  shortfall = (raw - out) * _V_HWY ** 2
+  # the gate releases between 0.25 and 0.6 m/s^2, so the first ~0.3 m/s^2 of a curve is briefly softened
+  # (~0.13 m/s^2 at gain 0.5, <2 cm of path at 70 mph) ...
+  assert np.max(np.abs(shortfall)) < 0.15  # m/s^2
+  # ... but 0.6 m/s^2 is reached with no delay, and the curve itself is untouched
+  assert np.argmax(out * _V_HWY ** 2 >= 0.6) == np.argmax(lat >= 0.6)
+  np.testing.assert_allclose(out[t > 8.0], raw[t > 8.0], rtol=0, atol=1e-12)
+
+
+def test_below_speed_gate_passes_through():
+  v = 15.0  # ~34 mph
+  raw = _weave(v_ego=v)
+  np.testing.assert_allclose(_run(HighwayCorrectionGain(), raw, gain=0.5, v_ego=v), raw, rtol=0, atol=1e-12)
+
+
+def test_bypass_fades_without_steps():
+  raw = _weave(seconds=30.0)
+  bypass = np.zeros(len(raw), bool)
+  bypass[int(15 / DT_CTRL):int(20 / DT_CTRL)] = True  # blinker / override for 5 s
+  hcg = HighwayCorrectionGain()
+  out = _run(hcg, raw, gain=0.5, bypass=bypass)
+  # fully bypassed well inside the window
+  mid = slice(int(17 / DT_CTRL), int(20 / DT_CTRL))
+  np.testing.assert_allclose(out[mid], raw[mid], rtol=0, atol=1e-12)
+  # no output jumps bigger than the raw signal's own per-frame change allows
+  max_raw_step = np.max(np.abs(np.diff(raw)))
+  assert np.max(np.abs(np.diff(out))) < 1.5 * max_raw_step
+
+
+def test_inactive_resets_and_passes_through():
+  hcg = HighwayCorrectionGain()
+  raw = _weave(seconds=10.0)
+  _run(hcg, raw, gain=0.5)
+  assert hcg.weight > 0.9
+  out = _run(hcg, raw[:50], gain=0.5, lat_active=False)
+  np.testing.assert_array_equal(out, raw[:50])
+  assert hcg.weight == 0.0 and hcg.bypass_weight == 0.0
+
+
+def test_gain_is_clamped():
+  raw = _weave()
+  low = _run(HighwayCorrectionGain(), raw, gain=0.0)
+  floor = _run(HighwayCorrectionGain(), raw, gain=0.4)
+  np.testing.assert_allclose(low, floor, rtol=0, atol=1e-15)

@@ -103,6 +103,19 @@ class StarPilotLateralLayout(_SettingsPage):
     def aol_on():
       return p.get_bool("AlwaysOnLateral")
 
+    hcg_known = []
+
+    def hcg_available():
+      # HighwayCorrectionGain is a new params_keys.h entry: until scons rebuilds params_pyx, touching it raises
+      # UnknownKeyName, so keep the row hidden instead of crashing the UI on a stale build.
+      if not hcg_known:
+        try:
+          p.get_float("HighwayCorrectionGain")
+          hcg_known.append(True)
+        except Exception:
+          hcg_known.append(False)
+      return hcg_known[0]
+
     def lc_on():
       return p.get_bool("LaneChanges")
 
@@ -304,6 +317,14 @@ class StarPilotLateralLayout(_SettingsPage):
         get_value=lambda: f"{p.get_float('SteerKP'):.2f}",
         on_click=lambda: self._show_slider("SteerKP", max(0.01, cs.steerKp) * 0.5, max(0.01, cs.steerKp) * 3.0, step=0.01, value_type="float"),
         visible=lambda: alt_on() and cs.steerKp != 0 and cs.isTorqueCar and not cs.isAngleCar,
+      ),
+      SettingRow(
+        "HighwayCorrectionGain", "value", tr_noop("Highway Correction Gain"),
+        subtitle=tr_noop("Straight highway only (45+ mph). 1.00 = stock. Lower follows the model's quick back-and-forth corrections less, to calm weave."),
+        get_value=lambda: f"{p.get_float('HighwayCorrectionGain'):.2f}",
+        on_click=lambda: self._show_slider("HighwayCorrectionGain", 0.4, 1.0, step=0.05, value_type="float",
+                                           title="Highway Correction Gain"),
+        visible=lambda: alt_on() and hcg_available(),
       ),
       SettingRow(
         "SteerLatAccel", "value", tr_noop("Lateral Acceleration"),
