@@ -431,6 +431,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"HideSpeedLimit", {PERSISTENT, BOOL, "0", "0", 2, SETTINGS_SIMPLE}},
     {"HideSteeringWheel", {PERSISTENT, BOOL, "0", "0", 2, SETTINGS_SIMPLE}},
     {"HigherBitrate", {PERSISTENT, BOOL, "0", "0", 2, SETTINGS_SIMPLE}},
+    {"HighwayCorrectionGain", {PERSISTENT, FLOAT, "1.0", "1.0", 3}},
     {"HolidayThemes", {PERSISTENT, BOOL, "1", "0", 0, SETTINGS_SIMPLE}},
     {"HumanLaneChanges", {PERSISTENT, BOOL, "0", "0", 2, SETTINGS_SIMPLE}},
     {"IconPack", {PERSISTENT, STRING, "stock", "stock", 0}},
