@@ -796,6 +796,12 @@ class StarPilotVariables:
       toggle.highway_correction_gain = self.get_value("HighwayCorrectionGain", cast=float, condition=advanced_lateral_tuning, default=1.0, min=0.3, max=1.0)
     except Exception:  # UnknownKeyName until scons rebuilds params_pyx with the new key
       toggle.highway_correction_gain = 1.0
+    try:
+      toggle.ioniq_6_weave_tune = self.get_value("Ioniq6WeaveTune", condition=advanced_lateral_tuning, default=True)
+      toggle.hkg_highway_friction_threshold = self.get_value("HKGHighwayFrictionThreshold", condition=advanced_lateral_tuning)
+    except Exception:  # UnknownKeyName until scons rebuilds params_pyx with the new keys
+      toggle.ioniq_6_weave_tune = True
+      toggle.hkg_highway_friction_threshold = False
     honda_pid_lateral = toggle.car_make == "honda" and CP.lateralTuning.which() == "pid" and not is_angle_car
     toggle.honda_lateral_pid_kp_scale = self.get_value("HondaLateralPidKpScale", cast=float, condition=honda_pid_lateral, default=1.0, min=0.1, max=4.0)
     toggle.honda_lateral_pid_ki_scale = self.get_value("HondaLateralPidKiScale", cast=float, condition=honda_pid_lateral, default=1.0, min=0.1, max=4.0)

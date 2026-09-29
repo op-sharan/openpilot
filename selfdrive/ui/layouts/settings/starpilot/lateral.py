@@ -103,17 +103,17 @@ class StarPilotLateralLayout(_SettingsPage):
     def aol_on():
       return p.get_bool("AlwaysOnLateral")
 
-    hcg_known = []
+    known_keys = {}
 
-    def hcg_available():
+    def key_available(key):
       # raises UnknownKeyName until scons rebuilds params_pyx with the new key
-      if not hcg_known:
+      if key not in known_keys:
         try:
-          p.get_float("HighwayCorrectionGain")
-          hcg_known.append(True)
+          p.get(key)
+          known_keys[key] = True
         except Exception:
-          hcg_known.append(False)
-      return hcg_known[0]
+          known_keys[key] = False
+      return known_keys[key]
 
     def lc_on():
       return p.get_bool("LaneChanges")
@@ -330,7 +330,21 @@ class StarPilotLateralLayout(_SettingsPage):
         get_value=lambda: f"{p.get_float('HighwayCorrectionGain'):.2f}",
         on_click=lambda: self._show_slider("HighwayCorrectionGain", 0.3, 1.0, step=0.05, value_type="float",
                                            title="Highway Smoothing"),
-        visible=lambda: alt_on() and hcg_available(),
+        visible=lambda: alt_on() and key_available("HighwayCorrectionGain"),
+      ),
+      SettingRow(
+        "Ioniq6WeaveTune", "toggle", tr_noop("Ioniq 6 Weave Tune"),
+        subtitle=tr_noop("Smoother center tapers and friction fade for highway weave. Off = previous values."),
+        get_state=lambda: p.get_bool("Ioniq6WeaveTune"),
+        set_state=lambda s: p.put_bool("Ioniq6WeaveTune", s),
+        visible=lambda: alt_on() and cs.isIoniq6 and key_available("Ioniq6WeaveTune"),
+      ),
+      SettingRow(
+        "HKGHighwayFrictionThreshold", "toggle", tr_noop("Highway Friction Threshold"),
+        subtitle=tr_noop("Raises the friction threshold from 0.39 to 0.78 between 34 and 56 mph."),
+        get_state=lambda: p.get_bool("HKGHighwayFrictionThreshold"),
+        set_state=lambda s: p.put_bool("HKGHighwayFrictionThreshold", s),
+        visible=lambda: alt_on() and cs.isHKGCanFd and cs.isTorqueCar and not cs.isAngleCar and key_available("HKGHighwayFrictionThreshold"),
       ),
       SettingRow(
         "SteerLatAccel", "value", tr_noop("Lateral Acceleration"),

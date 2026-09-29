@@ -15,6 +15,8 @@ from openpilot.starpilot.common.testing_grounds import testing_ground
 CIVIC_BOSCH_MODIFIED_B_FIXED_FRICTION_THRESHOLD = 0.30
 STANDARD_FRICTION_THRESHOLD = 0.30
 HKG_CANFD_BASE_FRICTION_THRESHOLD = 0.39
+HKG_CANFD_HIGHWAY_FRICTION_THRESHOLD = 0.78
+HKG_CANFD_HIGHWAY_FRICTION_THRESHOLD_BP = [15.0, 25.0]  # m/s
 FLM_SCHEMA_VERSION = 1
 FLM_FRICTION_SPEED_KNOTS = [0.0, 5.0, 10.0, 15.0, 25.0]
 CIVIC_BOSCH_MODIFIED_B_LAT_ACCEL_FACTOR_MULT = 1.20
@@ -983,6 +985,13 @@ IONIQ_6_FRICTION_CENTER_FADE_LAT = 0.15
 IONIQ_6_FRICTION_CENTER_FADE_LAT_WIDTH = 0.14
 IONIQ_6_FRICTION_CENTER_FADE_SPEED = 18.0
 IONIQ_6_FRICTION_CENTER_FADE_SPEED_WIDTH = 2.5
+# values before the weave tune, used when the Ioniq6WeaveTune toggle is off
+IONIQ_6_LEGACY_CENTER_TAPER_LAT_WIDTH = 0.025
+IONIQ_6_LEGACY_HIGHWAY_OUTPUT_TAPER_LAT_WIDTH = 0.04
+IONIQ_6_LEGACY_DIRECTIONAL_TAPER_BASE_LEFT = 0.11
+IONIQ_6_LEGACY_DIRECTIONAL_TAPER_BASE_RIGHT = 0.45
+IONIQ_6_LEGACY_FRICTION_CENTER_FADE_MAX = 0.50
+IONIQ_6_LEGACY_FRICTION_CENTER_FADE_LAT_WIDTH = 0.06
 # Newer Ioniq 6 highway center-chatter correction; activation is firmware-gated.
 IONIQ_6_2025_FRICTION_SCALE_MULT = 0.80
 IONIQ_6_2025_FRICTION_JERK_DEADZONE = 0.45
@@ -1339,6 +1348,19 @@ TRAILER_LATERAL_FRICTION_GAIN = 0.03
 _FLM_ACTIVE_OVERRIDES_TEXT = ""
 _FLM_ACTIVE_OVERRIDES = {}
 
+_IONIQ_6_WEAVE_TUNE = True
+_HKG_HIGHWAY_FRICTION_THRESHOLD = False
+
+
+def set_lateral_test_toggles(ioniq_6_weave_tune: bool, hkg_highway_friction_threshold: bool) -> None:
+  global _IONIQ_6_WEAVE_TUNE, _HKG_HIGHWAY_FRICTION_THRESHOLD
+  _IONIQ_6_WEAVE_TUNE = bool(ioniq_6_weave_tune)
+  _HKG_HIGHWAY_FRICTION_THRESHOLD = bool(hkg_highway_friction_threshold)
+
+
+def _ioniq_6_weave(tuned: float, legacy: float) -> float:
+  return tuned if _IONIQ_6_WEAVE_TUNE else legacy
+
 
 def _sigmoid(x: float) -> float:
   if x >= 0.0:
@@ -1358,7 +1380,11 @@ def _standard_friction_threshold_default(v_ego: float) -> float:
 
 
 def _hkg_canfd_base_friction_threshold_default(v_ego: float) -> float:
-  return max(_gm_base_friction_threshold_default(v_ego), HKG_CANFD_BASE_FRICTION_THRESHOLD)
+  threshold = max(_gm_base_friction_threshold_default(v_ego), HKG_CANFD_BASE_FRICTION_THRESHOLD)
+  if _HKG_HIGHWAY_FRICTION_THRESHOLD:
+    threshold = max(threshold, float(np.interp(v_ego, HKG_CANFD_HIGHWAY_FRICTION_THRESHOLD_BP,
+                                               [HKG_CANFD_BASE_FRICTION_THRESHOLD, HKG_CANFD_HIGHWAY_FRICTION_THRESHOLD])))
+  return threshold
 
 
 def _flm_copy_json(value):
@@ -3861,8 +3887,10 @@ def get_ioniq_6_friction_scale(v_ego: float, desired_lateral_accel: float, desir
 
 def get_ioniq_6_friction_center_fade_scale(desired_lateral_accel: float, v_ego: float) -> float:
   speed_weight = _ioniq_6_sigmoid((v_ego - IONIQ_6_FRICTION_CENTER_FADE_SPEED) / IONIQ_6_FRICTION_CENTER_FADE_SPEED_WIDTH)
-  center_weight = _ioniq_6_sigmoid((IONIQ_6_FRICTION_CENTER_FADE_LAT - abs(desired_lateral_accel)) / IONIQ_6_FRICTION_CENTER_FADE_LAT_WIDTH)
-  return 1.0 - IONIQ_6_FRICTION_CENTER_FADE_MAX * speed_weight * center_weight
+  lat_width = _ioniq_6_weave(IONIQ_6_FRICTION_CENTER_FADE_LAT_WIDTH, IONIQ_6_LEGACY_FRICTION_CENTER_FADE_LAT_WIDTH)
+  center_weight = _ioniq_6_sigmoid((IONIQ_6_FRICTION_CENTER_FADE_LAT - abs(desired_lateral_accel)) / lat_width)
+  fade_max = _ioniq_6_weave(IONIQ_6_FRICTION_CENTER_FADE_MAX, IONIQ_6_LEGACY_FRICTION_CENTER_FADE_MAX)
+  return 1.0 - fade_max * speed_weight * center_weight
 
 
 def get_ioniq_6_2025_center_output_scale(desired_lateral_accel: float, v_ego: float) -> float:
@@ -3914,7 +3942,8 @@ def get_ioniq_6_2025_low_speed_center_friction_scale(desired_lateral_accel: floa
 
 def get_ioniq_6_center_taper_scale(desired_lateral_accel: float, v_ego: float) -> float:
   speed_weight = _ioniq_6_sigmoid((v_ego - IONIQ_6_CENTER_TAPER_SPEED) / IONIQ_6_CENTER_TAPER_SPEED_WIDTH)
-  center_weight = _ioniq_6_sigmoid((IONIQ_6_CENTER_TAPER_LAT - abs(desired_lateral_accel)) / IONIQ_6_CENTER_TAPER_LAT_WIDTH)
+  lat_width = _ioniq_6_weave(IONIQ_6_CENTER_TAPER_LAT_WIDTH, IONIQ_6_LEGACY_CENTER_TAPER_LAT_WIDTH)
+  center_weight = _ioniq_6_sigmoid((IONIQ_6_CENTER_TAPER_LAT - abs(desired_lateral_accel)) / lat_width)
   high_speed_reduction = _flm_vehicle_knob("hyundai_ioniq_6.center_taper_max", IONIQ_6_CENTER_TAPER_MAX) * speed_weight * center_weight
 
   highway_speed_weight = _ioniq_6_sigmoid((v_ego - IONIQ_6_HIGHWAY_CENTER_TAPER_SPEED) / IONIQ_6_HIGHWAY_CENTER_TAPER_SPEED_WIDTH)
@@ -3959,7 +3988,9 @@ def get_ioniq_6_directional_taper_scale(desired_lateral_accel: float, desired_la
     curvy_turn_in_lat_cutoff = _ioniq_6_sigmoid((IONIQ_6_CURVY_TURN_IN_TRIM_LAT_END - abs_lateral_accel) /
                                                 IONIQ_6_CURVY_TURN_IN_TRIM_LAT_CUTOFF_WIDTH)
     curvy_turn_in_trim_weight = curvy_turn_in_speed_weight * curvy_turn_in_lat_onset * curvy_turn_in_lat_cutoff * turn_in_weight
-  base_reduction = _ioniq_6_side_value(desired_lateral_accel, IONIQ_6_DIRECTIONAL_TAPER_BASE_LEFT, IONIQ_6_DIRECTIONAL_TAPER_BASE_RIGHT)
+  base_reduction = _ioniq_6_side_value(desired_lateral_accel,
+                                       _ioniq_6_weave(IONIQ_6_DIRECTIONAL_TAPER_BASE_LEFT, IONIQ_6_LEGACY_DIRECTIONAL_TAPER_BASE_LEFT),
+                                       _ioniq_6_weave(IONIQ_6_DIRECTIONAL_TAPER_BASE_RIGHT, IONIQ_6_LEGACY_DIRECTIONAL_TAPER_BASE_RIGHT))
   unwind_reduction = _ioniq_6_side_value(desired_lateral_accel, IONIQ_6_DIRECTIONAL_TAPER_UNWIND_LEFT, IONIQ_6_DIRECTIONAL_TAPER_UNWIND_RIGHT)
   heavy_base_reduction = _ioniq_6_side_value(desired_lateral_accel, IONIQ_6_HEAVY_DIRECTIONAL_TAPER_BASE_LEFT, IONIQ_6_HEAVY_DIRECTIONAL_TAPER_BASE_RIGHT)
   heavy_unwind_reduction = _ioniq_6_side_value(desired_lateral_accel, IONIQ_6_HEAVY_DIRECTIONAL_TAPER_UNWIND_LEFT, IONIQ_6_HEAVY_DIRECTIONAL_TAPER_UNWIND_RIGHT)
@@ -4010,7 +4041,7 @@ def get_ioniq_6_output_taper_scale(desired_lateral_accel: float, desired_lateral
 def get_ioniq_6_highway_output_taper_scale(desired_lateral_accel: float, v_ego: float) -> float:
   speed_weight = _ioniq_6_sigmoid((v_ego - IONIQ_6_HIGHWAY_OUTPUT_TAPER_SPEED) / IONIQ_6_HIGHWAY_OUTPUT_TAPER_SPEED_WIDTH)
   center_weight = _ioniq_6_sigmoid((IONIQ_6_HIGHWAY_OUTPUT_TAPER_LAT - abs(desired_lateral_accel)) /
-                                   IONIQ_6_HIGHWAY_OUTPUT_TAPER_LAT_WIDTH)
+                                   _ioniq_6_weave(IONIQ_6_HIGHWAY_OUTPUT_TAPER_LAT_WIDTH, IONIQ_6_LEGACY_HIGHWAY_OUTPUT_TAPER_LAT_WIDTH))
   reduction = IONIQ_6_HIGHWAY_OUTPUT_TAPER_MAX * speed_weight * center_weight
   return 1.0 - reduction
 

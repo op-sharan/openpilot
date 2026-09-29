@@ -229,6 +229,8 @@ class LatControlTorque(LatControl):
     flm_profile_active = bool(getattr(starpilot_toggles, "flm_trial_applied", False) and
                               getattr(starpilot_toggles, "flm_active_profile_id", ""))
     set_flm_runtime_overrides(getattr(starpilot_toggles, "flm_active_overrides", None) if flm_profile_active else None)
+    set_lateral_test_toggles(getattr(starpilot_toggles, "ioniq_6_weave_tune", True),
+                             getattr(starpilot_toggles, "hkg_highway_friction_threshold", False))
     flm_surface_active = flm_profile_active and flm_runtime_overrides_active()
     measured_curvature = -VM.calc_curvature(math.radians(CS.steeringAngleDeg - params.angleOffsetDeg), CS.vEgo, params.roll)
     measurement = measured_curvature * CS.vEgo ** 2
