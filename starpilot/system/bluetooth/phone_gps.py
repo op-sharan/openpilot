@@ -1,34 +1,38 @@
 """phone_gpsd: read a phone's GPS over Bluetooth SPP so qcomgpsd can fall back to it.
 
-Apps like "GPS NMEA Tether" run an SPP (RFCOMM serial) server on the phone that streams NMEA 0183. BlueZ's
-Profile API does the SDP lookup and RFCOMM connect for us and hands over the connected socket as a file
-descriptor, so this needs no AF_BLUETOOTH support in Python. Each parsed fix goes to a small file in
-/dev/shm (see phone_gps_fix.py); qcomgpsd publishes it on gpsLocation only while the modem has no fix.
+Apps like "GPS NMEA Tether" run an SPP (RFCOMM serial) server on the phone that streams NMEA 0183. A phone
+usually advertises several serial ports at once (other GPS apps, Android's own Nearby Share, ...), so this
+lists them with sdptool, tries GPS-named services first, and keeps the first one that actually sends valid
+NMEA. BlueZ's ConnectProfile can't be used for this: it connects to whichever serial port it finds first.
+
+Each parsed fix goes to a small file in /dev/shm (see phone_gps_fix.py); qcomgpsd publishes it on gpsLocation
+only while the modem has no fix.
 """
-import os
-import select
 import signal
+import socket
+import subprocess
 import threading
 import time
 
-from jeepney import DBusAddress, MatchRule, new_error, new_method_call, new_method_return
+from jeepney import DBusAddress, new_method_call
 from jeepney.io.threading import DBusRouter, open_dbus_connection
 from jeepney.low_level import HeaderFields, MessageType
 
 from openpilot.common.swaglog import cloudlog
 from openpilot.starpilot.system.bluetooth.bluez import ADAPTER_IFACE, BLUEZ, DEVICE_IFACE, OBJECT_MANAGER, unwrap_variant
-from openpilot.starpilot.system.bluetooth.phone_gps_fix import (PHONE_GPS_STATUS_PATH, NmeaAccumulator, address_from_device_path,
-                                                                clear_phone_fix, write_phone_fix, write_phone_status)
+from openpilot.starpilot.system.bluetooth.phone_gps_fix import (PHONE_GPS_STATUS_PATH, NmeaAccumulator, clear_phone_fix, contains_nmea,
+                                                                parse_serial_ports, write_phone_fix, write_phone_status)
 from openpilot.starpilot.system.bluetooth.protocol import is_phone
 
 SPP_UUID = "00001101-0000-1000-8000-00805f9b34fb"
-PROFILE_PATH = "/link/firestar/starpilot/phone_gps"
-PROFILE_IFACE = "org.bluez.Profile1"
-PROFILE_MANAGER_IFACE = "org.bluez.ProfileManager1"
 
 CONNECT_POLL_S = 2.0
 RETRY_MIN_S = 15.0
 RETRY_MAX_S = 120.0
+SDP_TIMEOUT_S = 20.0
+CONNECT_TIMEOUT_S = 15.0
+# How long a freshly opened serial port gets to prove it speaks NMEA. Apps send at ~1Hz even without a fix.
+PROBE_TIMEOUT_S = 6.0
 # The app streams at ~1Hz, so this long with no bytes means the link or the app has died.
 STALL_TIMEOUT_S = 10.0
 
@@ -40,144 +44,139 @@ def is_phone_candidate(props: dict) -> bool:
   return SPP_UUID in uuids or is_phone(int(props.get("Class", 0)), str(props.get("Icon", "")))
 
 
+def browse_serial_ports(address: str) -> list[tuple[str, int]]:
+  result = subprocess.run(["sdptool", "browse", address], capture_output=True, text=True, timeout=SDP_TIMEOUT_S, check=False)
+  return parse_serial_ports(result.stdout)
+
+
+def probe_nmea(address: str, channel: int) -> tuple[socket.socket | None, bytes, str]:
+  """Open an RFCOMM connection and keep it only if NMEA arrives. Returns (socket, bytes read, failure reason)."""
+  sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
+  received = b""
+  connected = False
+  try:
+    # Connecting includes paging the phone and encrypting the link, so it gets its own, longer timeout.
+    sock.settimeout(CONNECT_TIMEOUT_S)
+    sock.connect((address, channel))
+    connected = True
+    sock.settimeout(PROBE_TIMEOUT_S)
+    deadline = time.monotonic() + PROBE_TIMEOUT_S
+    while time.monotonic() < deadline:
+      data = sock.recv(1024)
+      if not data:
+        break
+      received += data
+      if contains_nmea(received):
+        return sock, received, ""
+    reason = "no NMEA"
+  except TimeoutError:
+    reason = "no NMEA" if connected else "connect timed out"
+  except OSError as error:
+    reason = error.strerror or str(error)
+  sock.close()
+  return None, b"", reason
+
+
 class PhoneGpsDaemon:
   def __init__(self):
-    # enable_fds: BlueZ passes the connected RFCOMM socket to NewConnection as a unix fd.
-    self.router = DBusRouter(open_dbus_connection(bus="SYSTEM", enable_fds=True))
-    self._call_lock = threading.Lock()
+    self.router = DBusRouter(open_dbus_connection(bus="SYSTEM"))
     self._state_lock = threading.Lock()
     self._stop = threading.Event()
     self._stopped = False
-    self._registered = False
-    self._fd: int | None = None
-    self._device_path = ""
+    self._sock: socket.socket | None = None
     self._retry_after: dict[str, tuple[float, float]] = {}
 
-    self._profile_filter = self.router.filter(MatchRule(type="method_call", interface=PROFILE_IFACE, path=PROFILE_PATH), bufsize=10)
-    self._profile_queue = self._profile_filter.__enter__()
-    self._profile_thread = threading.Thread(target=self._profile_loop, daemon=True)
-    self._profile_thread.start()
-
-  def _call(self, path: str, interface: str, member: str, signature: str | None = None, body: tuple = (), timeout: float = 15.0):
-    address = DBusAddress(path, bus_name=BLUEZ, interface=interface)
-    message = new_method_call(address, member, signature, body) if signature is not None else new_method_call(address, member)
-    with self._call_lock:
-      reply = self.router.send_and_get_reply(message, timeout=timeout)
+  def _managed_objects(self) -> dict:
+    message = new_method_call(DBusAddress("/", bus_name=BLUEZ, interface=OBJECT_MANAGER), "GetManagedObjects")
+    reply = self.router.send_and_get_reply(message, timeout=15.0)
     if reply.header.message_type == MessageType.error:
       raise RuntimeError(str(reply.body[0] if reply.body else reply.header.fields.get(HeaderFields.error_name, "failed")))
-    return reply.body
-
-  def _register_profile(self) -> None:
-    options = {
-      "Name": ("s", "StarPilot Phone GPS"),
-      "Role": ("s", "client"),
-      "AutoConnect": ("b", False),
-    }
-    try:
-      self._call("/org/bluez", PROFILE_MANAGER_IFACE, "RegisterProfile", "osa{sv}", (PROFILE_PATH, SPP_UUID, options))
-    except RuntimeError as error:
-      if "alreadyexists" not in str(error).replace(" ", "").lower():
-        raise
-    self._registered = True
-    cloudlog.warning("phone_gpsd: SPP client profile registered")
-
-  def _profile_loop(self) -> None:
-    while not self._stop.is_set():
-      message = self._profile_queue.get()
-      if message is None:
-        break
-      member = message.header.fields.get(HeaderFields.member, "")
-      try:
-        if member == "NewConnection":
-          self._on_new_connection(str(message.body[0]), message.body[1])
-        elif member == "RequestDisconnection":
-          self._close_connection("phone requested disconnection")
-        elif member == "Release":
-          self._registered = False
-        else:
-          raise RuntimeError(f"Unsupported profile call: {member}")
-        self.router.send(new_method_return(message))
-      except Exception as error:
-        cloudlog.exception(f"phone_gpsd: profile call {member} failed")
-        try:
-          self.router.send(new_error(message, "org.bluez.Error.Rejected", "s", (str(error),)))
-        except Exception:
-          pass
-
-  def _on_new_connection(self, device_path: str, fd_obj) -> None:
-    fd = fd_obj.to_raw_fd()
-    with self._state_lock:
-      if self._fd is not None:
-        os.close(fd)
-        return
-      self._fd = fd
-      self._device_path = device_path
-    cloudlog.warning(f"phone_gpsd: connected to {device_path}")
-    self._publish_status(device_path, None, None)
-    threading.Thread(target=self._read_loop, args=(fd, device_path), daemon=True).start()
+    return unwrap_variant(reply.body[0]) if reply.body else {}
 
   @staticmethod
-  def _publish_status(device_path: str, last_data: float | None, last_fix: float | None) -> None:
+  def _publish_status(address: str, last_data: float | None, last_fix: float | None) -> None:
     # Only feeds the Bluetooth settings screen; never let it break the GPS link.
     try:
-      write_phone_status(address_from_device_path(device_path), last_data, last_fix)
+      write_phone_status(address, last_data, last_fix)
     except OSError:
       pass
 
   def _close_connection(self, reason: str) -> None:
     with self._state_lock:
-      fd, self._fd = self._fd, None
-      device_path, self._device_path = self._device_path, ""
-    if fd is None:
+      sock, self._sock = self._sock, None
+    if sock is None:
       return
     try:
-      os.close(fd)
+      sock.close()
     except OSError:
       pass
     clear_phone_fix()
     clear_phone_fix(PHONE_GPS_STATUS_PATH)
-    cloudlog.warning(f"phone_gpsd: disconnected from {device_path} ({reason})")
+    cloudlog.warning(f"phone_gpsd: disconnected ({reason})")
 
-  def _read_loop(self, fd: int, device_path: str) -> None:
+  def _read_loop(self, sock: socket.socket, address: str, initial: bytes) -> None:
     accumulator = NmeaAccumulator()
+    sock.settimeout(1.0)
     last_data = time.monotonic()
     last_fix: float | None = None
     last_status = 0.0
     first_fix = True
     reason = "stopped"
+    data = initial
     try:
       while not self._stop.is_set():
         with self._state_lock:
-          if self._fd != fd:
+          if self._sock is not sock:
             return
-        readable, _, _ = select.select([fd], [], [], 1.0)
         now = time.monotonic()
-        if not readable:
-          if now - last_data > STALL_TIMEOUT_S:
-            reason = "no data"
-            break
+        publish_now = False
+        if data:
+          last_data = now
+          for fix in accumulator.feed_bytes(data):
+            write_phone_fix(fix)
+            last_fix = now
+            if first_fix:
+              first_fix = False
+              publish_now = True  # flip the settings row to "streaming" right away, not on the next tick
+              cloudlog.warning(f"phone_gpsd: first fix {fix['latitude']:.5f},{fix['longitude']:.5f} sats={fix['satellites']}")
+        elif now - last_data > STALL_TIMEOUT_S:
+          reason = "no data"
+          break
+        if publish_now or now - last_status >= 1.0:
+          last_status = now
+          self._publish_status(address, last_data, last_fix)
+        try:
+          data = sock.recv(4096)
+        except TimeoutError:
+          data = b""
           continue
-        data = os.read(fd, 4096)
         if not data:
           reason = "closed by phone"
           break
-        last_data = now
-        for fix in accumulator.feed_bytes(data):
-          write_phone_fix(fix)
-          last_fix = now
-          if first_fix:
-            first_fix = False
-            cloudlog.warning(f"phone_gpsd: first fix {fix['latitude']:.5f},{fix['longitude']:.5f} sats={fix['satellites']}")
-        if now - last_status >= 1.0:
-          last_status = now
-          self._publish_status(device_path, last_data, last_fix)
     except OSError as error:
-      reason = str(error)
+      reason = error.strerror or str(error)
     self._close_connection(reason)
 
+  def _connect_phone(self, address: str, name: str) -> bool:
+    ports = browse_serial_ports(address)
+    if not ports:
+      raise RuntimeError("phone offers no serial port - is the GPS app's Bluetooth stream running?")
+    tried = []
+    for service, channel in ports:
+      sock, initial, failure = probe_nmea(address, channel)
+      if sock is None:
+        tried.append(f"{service or '?'} ch{channel}: {failure}")
+        continue
+      with self._state_lock:
+        self._sock = sock
+      cloudlog.warning(f"phone_gpsd: connected to {name} via \"{service}\" (channel {channel})")
+      self._publish_status(address, time.monotonic(), None)
+      threading.Thread(target=self._read_loop, args=(sock, address, initial), daemon=True).start()
+      return True
+    raise RuntimeError("no serial port sent NMEA (" + "; ".join(tried) + ")")
+
   def _connect_candidates(self) -> None:
-    body = self._call("/", OBJECT_MANAGER, "GetManagedObjects")
-    objects = unwrap_variant(body[0]) if body else {}
+    objects = self._managed_objects()
     # Runs offroad too, so stay off the radio while bluetooth_managerd is scanning for devices to pair.
     if any(interfaces.get(ADAPTER_IFACE, {}).get("Discovering", False) for interfaces in objects.values()):
       return
@@ -189,29 +188,27 @@ class PhoneGpsDaemon:
       delay, retry_at = self._retry_after.get(path, (0.0, 0.0))
       if now < retry_at:
         continue
+      name = str(props.get("Alias") or props.get("Address") or path)
       try:
-        self._call(path, DEVICE_IFACE, "ConnectProfile", "s", (SPP_UUID,), timeout=25.0)
-        self._retry_after.pop(path, None)
-        return
+        if self._connect_phone(str(props["Address"]), name):
+          self._retry_after.pop(path, None)
+          return
       except Exception as error:
         delay = min(RETRY_MAX_S, max(RETRY_MIN_S, delay * 2))
         self._retry_after[path] = (delay, time.monotonic() + delay)
-        cloudlog.warning(f"phone_gpsd: SPP connect to {props.get('Alias') or path} failed ({error}); retry in {delay:.0f}s")
+        cloudlog.warning(f"phone_gpsd: {name}: {error}; retry in {delay:.0f}s")
 
   def run(self) -> None:
     clear_phone_fix()
     clear_phone_fix(PHONE_GPS_STATUS_PATH)
     while not self._stop.is_set():
       try:
-        if not self._registered:
-          self._register_profile()
         with self._state_lock:
-          connected = self._fd is not None
+          connected = self._sock is not None
         if not connected:
           self._connect_candidates()
       except Exception:
         # BlueZ restarting or the adapter powering down; keep trying rather than exiting.
-        self._registered = False
         cloudlog.exception("phone_gpsd: loop error")
       self._stop.wait(CONNECT_POLL_S)
 
@@ -221,15 +218,6 @@ class PhoneGpsDaemon:
       return
     self._stopped = True
     self._close_connection("shutting down")
-    try:
-      self._call("/org/bluez", PROFILE_MANAGER_IFACE, "UnregisterProfile", "o", (PROFILE_PATH,), timeout=5.0)
-    except Exception:
-      pass
-    try:
-      self._profile_queue.put_nowait(None)
-    except Exception:
-      pass
-    self._profile_filter.__exit__(None, None, None)
     self.router.close()
 
 

@@ -4,8 +4,8 @@ import json
 import pytest
 
 from openpilot.starpilot.system.bluetooth.phone_gps_fix import (KNOTS_TO_MS, NmeaAccumulator, address_from_device_path, clear_phone_fix,
-                                                                nmea_checksum_ok, phone_fix_fields, read_phone_fix, read_phone_status,
-                                                                write_phone_fix, write_phone_status)
+                                                                contains_nmea, nmea_checksum_ok, parse_serial_ports, phone_fix_fields,
+                                                                read_phone_fix, read_phone_status, write_phone_fix, write_phone_status)
 
 
 def sentence(body: str) -> str:
@@ -116,6 +116,48 @@ def test_phone_status_states(tmp_path):
 
   clear_phone_fix(path)
   assert read_phone_status(path, now=101.0) == ("", "")
+
+
+def sdp_record(name: str, channel: int, service_class: str = '"Serial Port" (0x1101)') -> str:
+  return "\n".join([
+    f"Service Name: {name}",
+    f"Service RecHandle: 0x100{channel:02d}",
+    "Service Class ID List:",
+    f"  {service_class}",
+    "Protocol Descriptor List:",
+    '  "L2CAP" (0x0100)',
+    '  "RFCOMM" (0x0003)',
+    f"    Channel: {channel}",
+    "Profile Descriptor List:",
+    f"  {service_class}",
+    "    Version: 0x0102",
+    "",
+  ])
+
+
+# Modeled on a Pixel 8 Pro running GPS NMEA Tether plus a second GPS app ("BT1") and Nearby Share.
+PIXEL_SDP = "Browsing D4:3A:2C:63:2A:50 ...\n" + "\n".join([
+  sdp_record("Headset Gateway", 3, '"Headset Audio Gateway" (0x1112)'),
+  sdp_record("Handsfree Gateway", 4, '"Handsfree Audio Gateway" (0x111f)'),
+  sdp_record("BT1", 21),
+  sdp_record("NearbySharing", 20),
+  sdp_record("GPS NMEA Tether", 16),
+])
+
+
+def test_parse_serial_ports_prefers_gps_apps_and_skips_android_services():
+  assert parse_serial_ports(PIXEL_SDP) == [("GPS NMEA Tether", 16), ("BT1", 21)]
+  assert parse_serial_ports("Browsing D4:3A:2C:63:2A:50 ...\n") == []
+  assert parse_serial_ports(sdp_record("Handsfree Gateway", 4, '"Handsfree Audio Gateway" (0x111f)')) == []
+
+
+def test_contains_nmea():
+  # A real capture from GPS NMEA Tether with no satellite lock; the proprietary $PGLOR line has a bogus checksum.
+  pglor = b"$PGLOR,12,STA,151137.08,0.000,0.225,249,297,9999,0,P,F,L,1,C,0,S,00000000,0,2,R,00000000,TPEF,41,84105,LC,,,DR,0,,*00\r\n"
+  gga = b"$GPGGA,151137.08,,,,,0,00,999.9,,M,,M,,*6E\r\n"
+  assert contains_nmea(pglor + gga)
+  assert not contains_nmea(pglor)
+  assert not contains_nmea(b"\x00\x01binary junk")
 
 
 def test_phone_fix_fields():

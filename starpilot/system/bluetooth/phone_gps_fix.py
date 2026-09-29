@@ -11,6 +11,7 @@ import datetime
 import json
 import math
 import os
+import re
 import time
 
 PHONE_GPS_FIX_PATH = "/dev/shm/starpilot_phone_gps.json"
@@ -41,6 +42,40 @@ def nmea_checksum_ok(sentence: str) -> bool:
     return calculated == int(checksum[:2], 16)
   except ValueError:
     return False
+
+
+SERIAL_PORT_CLASS = '"Serial Port" (0x1101)'
+# Android registers some of its own services with the Serial Port class too (Nearby Share showed up next to
+# the GPS app on a Pixel 8 Pro); they never carry NMEA and connecting to them just gets reset.
+IGNORED_SERIAL_SERVICES = ("nearbysharing", "nearby")
+GPS_SERVICE_HINTS = ("gps", "nmea", "gnss")
+
+
+def parse_serial_ports(sdp_output: str) -> list[tuple[str, int]]:
+  """(service name, RFCOMM channel) for each Serial Port record in `sdptool browse` output, GPS apps first.
+
+  A phone can advertise several serial ports at once (GPS apps, Nearby Share, ...), so picking the first one,
+  as BlueZ's ConnectProfile does, can land on a service that never sends NMEA.
+  """
+  ports = []
+  for record in re.split(r"\n\s*\n", sdp_output):
+    if SERIAL_PORT_CLASS not in record:
+      continue
+    channel = re.search(r"Channel: (\d+)", record)
+    if channel is None:
+      continue
+    name_match = re.search(r"Service Name: (.*)", record)
+    name = name_match.group(1).strip() if name_match else ""
+    squashed = name.lower().replace(" ", "")
+    if any(ignored in squashed for ignored in IGNORED_SERIAL_SERVICES):
+      continue
+    ports.append((name, int(channel.group(1))))
+  ports.sort(key=lambda port: not any(hint in port[0].lower() for hint in GPS_SERVICE_HINTS))
+  return ports
+
+
+def contains_nmea(data: bytes) -> bool:
+  return any(nmea_checksum_ok(line) for line in data.decode("ascii", errors="ignore").splitlines())
 
 
 def _coordinate(value: str, hemisphere: str) -> float | None:
