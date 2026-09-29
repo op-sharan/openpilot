@@ -20,18 +20,23 @@ from openpilot.common.realtime import DT_CTRL
 # ~gain with only ~5 deg of phase lag, and DC / slow lane keeping passes unchanged. The earlier tau 0.3 s
 # low-pass smoother (drive 00000b27) did nothing because it added lag to the same loop it meant to damp.
 #
-# Gating copies that smoother: only above ~45 mph, only on near-straight road (sliding-max envelope of the
+# Gating copies that smoother: only above ~35 mph, only on near-straight road (sliding-max envelope of the
 # raw commanded lateral accel so the weave cannot modulate its own gain), faded out for blinkers,
 # overrides, turn holds, lane changes and maneuver plans. gain = 1.0 is an exact pass-through.
+#
+# Road test 00000b55: gain 0.4 cut straight-road weave to 0.67x at matched speed/roughness (OEM level above
+# 60 mph); 0.7 did nothing. The fade-in moved from 40-50 to 30-40 mph because 45-50 mph was only partly
+# covered. MIN_GAIN stops at 0.3: lower, the output is mostly the 1.5 s baseline, i.e. a low-pass again
+# (35 deg lag at 0.5 Hz for 0.2, 53 deg for 0.1), the failure mode of the old smoother.
 BASELINE_TAU = 1.5                        # s
-SPEED_OFF = 40.0 * CV.MPH_TO_MS
-SPEED_ON = 50.0 * CV.MPH_TO_MS
+SPEED_OFF = 30.0 * CV.MPH_TO_MS
+SPEED_ON = 40.0 * CV.MPH_TO_MS
 LAT_ACCEL_ON = 0.25                       # m/s^2, envelope below this: full effect
 LAT_ACCEL_OFF = 0.6                       # m/s^2, envelope above this: no effect
 ENVELOPE_HOLD = 2.0                       # s, sliding-max window (outlasts 0.35 Hz weave peak spacing)
 ENVELOPE_RELEASE_RATE = 0.3               # m/s^2 per second, after the hold
 BYPASS_FADE_RATE = 2.0                    # per second: blinker/override fade in/out over 0.5 s
-MIN_GAIN = 0.4
+MIN_GAIN = 0.3
 
 
 def _smoothstep(x: float, lo: float, hi: float) -> float:

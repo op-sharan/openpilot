@@ -72,7 +72,7 @@ def test_curve_entry_is_not_delayed_much():
 
 
 def test_below_speed_gate_passes_through():
-  v = 15.0  # ~34 mph
+  v = 13.0  # ~29 mph, below the 30-40 mph fade-in
   raw = _weave(v_ego=v)
   np.testing.assert_allclose(_run(HighwayCorrectionGain(), raw, gain=0.5, v_ego=v), raw, rtol=0, atol=1e-12)
 
@@ -91,6 +91,16 @@ def test_bypass_fades_without_steps():
   assert np.max(np.abs(np.diff(out))) < 1.5 * max_raw_step
 
 
+def test_active_from_40_mph():
+  v = 40.0 * 0.44704
+  raw = _weave(v_ego=v)
+  out = _run(HighwayCorrectionGain(), raw, gain=0.5, v_ego=v)
+  tail = slice(len(raw) // 2, None)
+  amp_in, _ = _fit_sine(raw[tail], 0.6)
+  amp_out, _ = _fit_sine(out[tail], 0.6)
+  assert 0.48 < amp_out / amp_in < 0.56
+
+
 def test_inactive_resets_and_passes_through():
   hcg = HighwayCorrectionGain()
   raw = _weave(seconds=10.0)
@@ -104,5 +114,5 @@ def test_inactive_resets_and_passes_through():
 def test_gain_is_clamped():
   raw = _weave()
   low = _run(HighwayCorrectionGain(), raw, gain=0.0)
-  floor = _run(HighwayCorrectionGain(), raw, gain=0.4)
+  floor = _run(HighwayCorrectionGain(), raw, gain=0.3)
   np.testing.assert_allclose(low, floor, rtol=0, atol=1e-15)

@@ -320,9 +320,9 @@ class StarPilotLateralLayout(_SettingsPage):
       ),
       SettingRow(
         "HighwayCorrectionGain", "value", tr_noop("Highway Correction Gain"),
-        subtitle=tr_noop("Straight highway only (45+ mph). 1.00 = stock. Lower follows the model's quick back-and-forth corrections less, to calm weave."),
+        subtitle=tr_noop("Straight roads only (35+ mph). 1.00 = stock. Lower follows the model's quick back-and-forth corrections less, to calm weave."),
         get_value=lambda: f"{p.get_float('HighwayCorrectionGain'):.2f}",
-        on_click=lambda: self._show_slider("HighwayCorrectionGain", 0.4, 1.0, step=0.05, value_type="float",
+        on_click=lambda: self._show_slider("HighwayCorrectionGain", 0.3, 1.0, step=0.05, value_type="float",
                                            title="Highway Correction Gain"),
         visible=lambda: alt_on() and hcg_available(),
       ),
