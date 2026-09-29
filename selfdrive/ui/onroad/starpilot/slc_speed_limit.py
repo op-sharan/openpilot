@@ -75,8 +75,21 @@ def _speed_limit_pulse_color(base: rl.Color, alpha: int) -> rl.Color:
 
 # ── State ─────────────────────────────────────────────────────────────
 
+def _is_slc_enabled() -> bool:
+  toggles = getattr(ui_state, "starpilot_toggles", {})
+  if "speed_limit_controller" in toggles:
+    return bool(toggles["speed_limit_controller"])
+  return ui_state.ui_params.get_bool("SpeedLimitController")
+
+
 def _get_slc_state():
   """Extract SLC state from SubMaster. Returns dict or None if stale/hidden."""
+  slc_enabled = _is_slc_enabled()
+  params = ui_state.ui_params
+  if not (slc_enabled or params.get_bool("ShowSpeedLimits")):
+    _pulse.clear()
+    return None
+
   sm = ui_state.sm
   if sm.recv_frame["starpilotPlan"] < ui_state.started_frame:
     _pulse.clear()
@@ -84,14 +97,9 @@ def _get_slc_state():
 
   plan = sm["starpilotPlan"]
   speed_limit_changed = plan.speedLimitChanged
+  presented_source = getattr(plan, 'slcPresentedSpeedLimitSource', '')
 
-  params = ui_state.ui_params
-  show_slc = params.get_bool("ShowSpeedLimits")
   unconfirmed_valid = plan.unconfirmedSlcSpeedLimit > 1
-
-  if not show_slc:
-    _pulse.clear()
-    return None
 
   speed_conversion = CV.MS_TO_KPH if ui_state.is_metric else CV.MS_TO_MPH
   dashboard_sl = sm["starpilotCarState"].dashboardSpeedLimit if sm.valid.get("starpilotCarState", False) else 0.0
@@ -105,9 +113,6 @@ def _get_slc_state():
 
   # The pulse uses the accepted raw limit, so unit changes cannot retrigger it.
   _tick_pulse(plan.slcSpeedLimitSource, plan.slcSpeedLimit)
-  toggles = getattr(ui_state, 'starpilot_toggles', {})
-  slc_enabled = toggles.get('speed_limit_controller') if 'speed_limit_controller' in toggles else params.get_bool('SpeedLimitController')
-
   return {
     'accepted_speed_limit_ms': plan.slcSpeedLimit,
     # Match the control target's non-negative base before cluster compensation.
@@ -115,9 +120,11 @@ def _get_slc_state():
     'offset_ms': plan.slcSpeedLimitOffset,
     'slc_overridden_speed': plan.slcOverriddenSpeed,
     'speed_limit_source': plan.slcSpeedLimitSource,
-    'presented_source': getattr(plan, 'slcPresentedSpeedLimitSource', plan.slcSpeedLimitSource),
-    'slc_enabled': bool(slc_enabled),
-    'slc_is_limiting_max_set': bool(getattr(plan, 'slcIsLimitingMaxSet', False)),
+    # Older publishers/replays decode the new Text field as "", rather than omitting the attribute.
+    'presented_source': presented_source or plan.slcSpeedLimitSource,
+    'slc_enabled': slc_enabled,
+    # Both UI fields were added together; older plans have no published limiting state.
+    'slc_is_limiting_max_set': bool(getattr(plan, 'slcIsLimitingMaxSet', False)) if presented_source else None,
     'unconfirmed_speed_limit': max(0.0, plan.unconfirmedSlcSpeedLimit * speed_conversion),
     'unconfirmed_valid': unconfirmed_valid,
     'speed_limit_changed': speed_limit_changed,
@@ -251,10 +258,19 @@ def _draw_source_icon(icon_key: str, x: float, y: float, size: float, color: rl.
     )
     rl.draw_circle_v(pin_center, size * 0.09, _SOURCE_PANEL_BG)
   elif icon_key == "dashboard":
-    dashboard_scale = 1.22
+    # The Dashboard speed-limit source is a vehicle glyph, distinct from Max Set's gauge.
+    body = rl.Rectangle(x + size * 0.10, y + size * 0.43, size * 0.80, size * 0.29)
+    rl.draw_rectangle_rounded_lines_ex(body, 0.30, 8, stroke, color)
+    rl.draw_line_ex(rl.Vector2(x + size * 0.25, body.y), rl.Vector2(x + size * 0.36, y + size * 0.27), stroke, color)
+    rl.draw_line_ex(rl.Vector2(x + size * 0.36, y + size * 0.27), rl.Vector2(x + size * 0.68, y + size * 0.27), stroke, color)
+    rl.draw_line_ex(rl.Vector2(x + size * 0.68, y + size * 0.27), rl.Vector2(x + size * 0.79, body.y), stroke, color)
+    for wheel_x in (x + size * 0.27, x + size * 0.73):
+      rl.draw_circle_v(rl.Vector2(wheel_x, y + size * 0.75), size * 0.07, color)
+  elif icon_key == "speedometer":
+    gauge_scale = 1.22
     pivot = rl.Vector2(cx, cy + size * 0.17)
-    inner_radius = size * 0.27 * dashboard_scale
-    outer_radius = size * 0.34 * dashboard_scale
+    inner_radius = size * 0.27 * gauge_scale
+    outer_radius = size * 0.34 * gauge_scale
     ring_segments = max(24, int(size * 0.25))
     rl.draw_ring(pivot, inner_radius, outer_radius, 190, 350, ring_segments, color)
     cap_radius = (outer_radius - inner_radius) / 2
@@ -279,7 +295,7 @@ def _draw_source_icon(icon_key: str, x: float, y: float, size: float, color: rl.
       stroke,
       color,
     )
-    rl.draw_circle_v(pivot, max(2.0, size * 0.06 * dashboard_scale), color)
+    rl.draw_circle_v(pivot, max(2.0, size * 0.06 * gauge_scale), color)
 
 
 def _draw_sources_bubble_empty_state(panel_rect: rl.Rectangle) -> None:
