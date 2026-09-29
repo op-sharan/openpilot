@@ -77,6 +77,19 @@
         "settings_tier": "advanced"
       },
       {
+        "key": "HighwayCorrectionGain",
+        "label": "Highway Smoothing",
+        "description": "Straight roads only (35+ mph). 1.00 = off. Lower follows the model's quick back-and-forth corrections less, to calm weave.",
+        "data_type": "float",
+        "ui_type": "numeric",
+        "min": 0.3,
+        "max": 1.0,
+        "step": 0.05,
+        "precision": 2,
+        "parent_key": "AdvancedLateralTune",
+        "settings_tier": "advanced"
+      },
+      {
         "key": "SteerLatAccel",
         "label": "Lateral Acceleration",
         "description": "Lateral Acceleration",
