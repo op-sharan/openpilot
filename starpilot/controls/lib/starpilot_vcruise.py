@@ -208,6 +208,7 @@ class StarPilotVCruise:
     self._nav_instruction_state_raw = None
     self._nav_instruction_state = {}
     self._applied_slc_control_target = 0.0
+    self.slc_is_limiting_max_set = False
     self.csc_controlling_speed = False
     self.csc_glow_release_timer = 0.0
     self.csc_override = False
@@ -342,6 +343,7 @@ class StarPilotVCruise:
   # ===== Main update =====
 
   def update(self, controls_enabled, now, time_validated, v_cruise, v_ego, sm, starpilot_toggles):
+    self.slc_is_limiting_max_set = False
     if not controls_enabled or not getattr(starpilot_toggles, "speed_limit_controller", False):
       self._applied_slc_control_target = 0.0
 
@@ -759,6 +761,8 @@ class StarPilotVCruise:
         self.slc.overridden_speed > 0.0,
         getattr(self.slc, "source", "None"),
       )
+      # Publish the semantic used by the UI after the lead-drop adjustment.
+      self.slc_is_limiting_max_set = bool(controls_enabled and 0 < slc_control_target < v_cruise)
       self._applied_slc_control_target = slc_control_target if slc_control_target > 0.0 else 0.0
       if slc_control_target > 0.0:
         targets.append(slc_control_target)

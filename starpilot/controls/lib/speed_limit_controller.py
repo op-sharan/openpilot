@@ -13,6 +13,7 @@ SOURCE_DASHBOARD = "Dashboard"
 SOURCE_MAP = "Map Data"
 SOURCE_VISION = "Vision"
 SOURCE_MAPBOX = "Mapbox"
+SOURCE_PREVIOUS_LIMIT = "Previous Limit"
 REAL_SOURCES = (SOURCE_DASHBOARD, SOURCE_MAP, SOURCE_VISION, SOURCE_MAPBOX)
 
 OFFSET_MAP_IMPERIAL = [
@@ -73,6 +74,7 @@ class SpeedLimitController:
     self.confirmation_button_consumed = False
     self._active_control = False
     self._using_experimental_fallback = False
+    self._using_previous_limit_fallback = False
     self._mode = "off"
 
   def shutdown(self):
@@ -89,6 +91,19 @@ class SpeedLimitController:
   @property
   def unconfirmed_speed_limit(self):
     return self.pending_limit
+
+  @property
+  def presented_source(self):
+    if self.confirmation_pending:
+      return self.pending_source
+    if self.source in REAL_SOURCES:
+      return self.source
+    if self._using_previous_limit_fallback and self.target >= 1:
+      return self.last_valid_source if self.last_valid_source in REAL_SOURCES else SOURCE_PREVIOUS_LIMIT
+    if (self.denied_limit > 0 and self.last_valid_limit > 0 and self.target >= 1 and
+        abs(self.target - self.last_valid_limit) < SAME_LIMIT_TOLERANCE):
+      return self.last_valid_source if self.last_valid_source in REAL_SOURCES else SOURCE_PREVIOUS_LIMIT
+    return SOURCE_NONE
 
   @property
   def experimental_mode(self):
@@ -205,10 +220,12 @@ class SpeedLimitController:
 
   def _apply_fallback(self, v_cruise, enabled):
     self._using_experimental_fallback = False
+    self._using_previous_limit_fallback = False
     previous_vision_filtered = self.last_valid_source == SOURCE_VISION and self.low_vision_limit_filtered(self.last_valid_limit)
     if self.starpilot_toggles.slc_fallback_previous_speed_limit and self.last_valid_limit > 0 and not previous_vision_filtered:
       self.source = self.last_valid_source
       self.target = self.last_valid_limit
+      self._using_previous_limit_fallback = True
     elif enabled and self.starpilot_toggles.slc_fallback_set_speed:
       self.source = SOURCE_NONE
       self.target = v_cruise
@@ -385,6 +402,7 @@ class SpeedLimitController:
     self.limit_change_started = False
     self.confirmation_button_consumed = False
     self._using_experimental_fallback = False
+    self._using_previous_limit_fallback = False
     mode = "display" if display_only else "active" if active else "off"
     if mode != self._mode:
       self.mapbox.reset()

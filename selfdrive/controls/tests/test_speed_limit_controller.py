@@ -8,7 +8,7 @@ from cereal import custom
 from openpilot.common.constants import CV
 from openpilot.common.realtime import DT_MDL
 from openpilot.starpilot.controls.lib.speed_limit_controller import (
-  SOURCE_DASHBOARD, SOURCE_MAP, SOURCE_MAPBOX, SOURCE_NONE, SOURCE_VISION, SpeedLimitController,
+  SOURCE_DASHBOARD, SOURCE_MAP, SOURCE_MAPBOX, SOURCE_NONE, SOURCE_PREVIOUS_LIMIT, SOURCE_VISION, SpeedLimitController,
 )
 from openpilot.starpilot.controls.lib.mapbox_speed_limit import MapboxSpeedLimit
 
@@ -262,6 +262,14 @@ def test_previous_fallback_startup_has_unknown_source(controller_factory):
   assert controller.target == pytest.approx(mph(45))
   assert controller.source == SOURCE_NONE
   assert controller.last_valid_source == SOURCE_NONE
+  assert controller.presented_source == SOURCE_PREVIOUS_LIMIT
+
+
+def test_set_speed_fallback_does_not_present_a_posted_limit(controller_factory):
+  controller = controller_factory(persisted=mph(45), slc_fallback_set_speed=True)
+  step(controller, cruise=mph(60))
+  assert controller.target == pytest.approx(mph(60))
+  assert controller.presented_source == SOURCE_NONE
 
 
 @pytest.mark.parametrize("fallback", ["set", "experimental"])
@@ -397,6 +405,7 @@ def test_rejection_and_timeout_do_not_change_history(controller_factory):
   step(controller, dashboard=mph(45))
   step(controller, dashboard=mph(45), decel=True)
   assert controller.denied_limit == pytest.approx(mph(45))
+  assert controller.presented_source == SOURCE_DASHBOARD
   assert controller.last_valid_limit == pytest.approx(mph(55))
   assert controller.starpilot_planner.params.writes == writes
   step(controller, dashboard=mph(45))
@@ -406,6 +415,20 @@ def test_rejection_and_timeout_do_not_change_history(controller_factory):
     step(controller, dashboard=mph(40))
   assert controller.denied_limit == pytest.approx(mph(40))
   assert controller.last_valid_limit == pytest.approx(mph(55))
+
+
+def test_rejected_limit_does_not_label_set_speed_fallback_as_posted(controller_factory):
+  controller = controller_factory(
+    speed_limit_confirmation_lower=True,
+    slc_fallback_set_speed=True,
+  )
+  step(controller, dashboard=mph(55))
+  step(controller, dashboard=mph(45))
+  step(controller, dashboard=mph(45), decel=True)
+  assert controller.presented_source == SOURCE_DASHBOARD
+  step(controller, cruise=mph(60))
+  assert controller.target == pytest.approx(mph(60))
+  assert controller.presented_source == SOURCE_NONE
 
 
 def test_disabling_confirmation_accepts_a_previously_denied_limit(controller_factory):
@@ -580,6 +603,24 @@ def test_fully_disengaged_auto_accept_takes_precedence_over_decel(controller_fac
   assert controller.target == pytest.approx(mph(45))
   assert controller.last_valid_limit == pytest.approx(mph(45))
   assert controller.denied_limit == 0
+
+
+def test_presented_source_tracks_pending_candidate_and_rejected_accepted_limit(controller_factory):
+  controller = controller_factory(speed_limit_confirmation_lower=True)
+  step(controller, dashboard=mph(55))
+  assert controller.presented_source == SOURCE_DASHBOARD
+
+  step(controller, map_limit=mph(45), way=custom.WaySelectionType.current)
+  assert controller.confirmation_pending
+  assert controller.source == SOURCE_NONE
+  assert controller.presented_source == SOURCE_MAP
+
+  step(controller, map_limit=mph(45), way=custom.WaySelectionType.current, decel=True)
+  assert not controller.confirmation_pending
+  assert controller.presented_source == SOURCE_DASHBOARD
+
+  step(controller)
+  assert controller.presented_source == SOURCE_NONE
 
 
 def test_explicit_accept_takes_precedence_over_simultaneous_reject(controller_factory):

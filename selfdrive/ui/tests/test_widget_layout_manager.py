@@ -137,6 +137,19 @@ class TestWidgetLayoutManager(unittest.TestCase):
     # w3: should stack directly below w1: y = 75 + 100 + 15 = 190
     self.assertEqual(w3.rect.y, 190)
 
+  def test_wide_unified_card_stays_inside_the_left_edge(self):
+    card = DummyLayoutWidget("unified_speed", priority=1, width=520, height=250)
+    gauge = DummyLayoutWidget("aethergauge", priority=3, width=176, height=260)
+    self.layout_manager.register_widget("left", card)
+    self.layout_manager.register_widget("left", gauge)
+
+    self.layout_manager.update_layout(self.content_rect)
+
+    self.assertEqual(card.rect.x, self.content_rect.x + 30)
+    self.assertEqual(card.rect.y, self.content_rect.y + 45)
+    self.assertEqual(gauge.rect.x + gauge.rect.width / 2, self.content_rect.x + 146)
+    self.assertEqual(gauge.rect.y, card.rect.y + card.rect.height + self.layout_manager.spacing)
+
   def test_dynamic_repositioning_on_rect_change(self):
     # Register a widget
     w1 = DummyLayoutWidget("w1", priority=1, width=100, height=100)

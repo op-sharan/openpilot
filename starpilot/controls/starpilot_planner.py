@@ -382,6 +382,8 @@ class StarPilotPlanner:
     starpilotPlan.slcSpeedLimit = self.starpilot_vcruise.slc_target
     starpilotPlan.slcSpeedLimitOffset = self.starpilot_vcruise.slc_offset
     starpilotPlan.slcSpeedLimitSource = self.starpilot_vcruise.slc.source
+    starpilotPlan.slcPresentedSpeedLimitSource = self.starpilot_vcruise.slc.presented_source
+    starpilotPlan.slcIsLimitingMaxSet = self.starpilot_vcruise.slc_is_limiting_max_set
     starpilotPlan.speedLimitChanged = self.starpilot_vcruise.slc.confirmation_pending
     starpilotPlan.unconfirmedSlcSpeedLimit = self.starpilot_vcruise.slc.unconfirmed_speed_limit
 

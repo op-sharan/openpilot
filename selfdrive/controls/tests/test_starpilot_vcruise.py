@@ -194,6 +194,7 @@ def test_active_slc_target_constrains_vcruise_below_csc_minimum(slc_target_mph, 
   )
 
   assert result == pytest.approx(expected_v_cruise_mph * CV.MPH_TO_MS)
+  assert vcruise.slc_is_limiting_max_set == (expected_v_cruise_mph < 35.0)
 
 
 def test_elantra_gets_lead_veto_margin_before_force_stop():
