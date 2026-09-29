@@ -105,10 +105,9 @@ def get_lead_veto_distance(car_params):
   return LEAD_VETO_M_OVERRIDES.get(fingerprint, LEAD_VETO_M)
 
 
-def get_active_slc_control_target(speed_limit_controller, set_speed_limit, slc_target, slc_offset, overridden_speed,
+def get_active_slc_control_target(speed_limit_controller, slc_target, slc_offset, overridden_speed,
                                   v_ego_diff, allow_lower_override=False):
-  # `SetSpeedLimit` only controls engage-time set-speed initialization. Ongoing
-  # SLC speed matching must remain active whenever Speed Limit Controller is on.
+  # SetSpeedLimit controls engage-time initialization; SLC limits ongoing cruise.
   if not speed_limit_controller:
     return 0.0
 
@@ -568,6 +567,18 @@ class StarPilotVCruise:
     v_ego_cluster = max(sm["carState"].vEgoCluster, v_ego)
     v_ego_diff = v_ego_cluster - v_ego
 
+    # Resolve this frame's SLC confirmation before CSC can consume accel/+.
+    self.slc.starpilot_toggles = starpilot_toggles
+    slc_active = starpilot_toggles.speed_limit_controller
+    slc_display_only = not slc_active and starpilot_toggles.show_speed_limits
+    self.slc.update(
+      sm["starpilotCarState"].dashboardSpeedLimit, now, time_validated,
+      v_cruise, v_cruise_diff, v_ego, v_ego_diff, sm,
+      active=slc_active, display_only=slc_display_only,
+    )
+    self.slc_offset = self.slc.offset if slc_active else 0
+    self.slc_target = self.slc.target if (slc_active or slc_display_only) else 0
+
     # Curve Speed Controller
     following_lead = bool(getattr(self.starpilot_planner.starpilot_following, "following_lead", False))
     manual_speed_control = is_manual_speed_control(sm)
@@ -586,8 +597,9 @@ class StarPilotVCruise:
                       not self.starpilot_planner.driving_in_curve)
     csc_was_controlling = self.csc_controlling_speed
 
-    slc_confirmation_pending = self.slc.speed_limit_changed_timer > DT_MDL and self.slc.unconfirmed_speed_limit >= 1
-    csc_accel_button = bool(sm["starpilotCarState"].accelPressed) and not slc_confirmation_pending
+    csc_accel_button = (bool(sm["starpilotCarState"].accelPressed) and
+                        not self.slc.confirmation_pending and
+                        not self.slc.confirmation_button_consumed)
 
 
 
@@ -636,24 +648,6 @@ class StarPilotVCruise:
 
     self.csc.handle_override(v_ego, csc_was_controlling, sm, accel_button=csc_accel_button)
     self.csc.log_data(v_ego, sm)
-
-    # Pfeiferj's Speed Limit Controller
-    self.slc.starpilot_toggles = starpilot_toggles
-
-    if starpilot_toggles.speed_limit_controller:
-      self.slc.update_limits(sm["starpilotCarState"].dashboardSpeedLimit, now, time_validated, v_cruise, v_ego, sm)
-      self.slc.update_override(v_cruise, v_cruise_diff, v_ego, v_ego_diff, sm)
-
-      self.slc_offset = self.slc.offset
-      self.slc_target = self.slc.target
-    elif starpilot_toggles.show_speed_limits:
-      self.slc.update_limits(sm["starpilotCarState"].dashboardSpeedLimit, now, time_validated, v_cruise, v_ego, sm, display_only=True)
-
-      self.slc_offset = 0
-      self.slc_target = self.slc.target
-    else:
-      self.slc_offset = 0
-      self.slc_target = 0
 
     self.nav_turn_target = self._get_nav_turn_control_target(v_cruise, sm, starpilot_toggles)
 
@@ -750,7 +744,6 @@ class StarPilotVCruise:
         targets.append(self.csc_target)
       slc_control_target = get_active_slc_control_target(
         starpilot_toggles.speed_limit_controller,
-        getattr(starpilot_toggles, "set_speed_limit", False),
         self.slc_target,
         self.slc_offset,
         self.slc.overridden_speed,
