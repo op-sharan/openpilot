@@ -7,6 +7,7 @@ import pytest
 
 from openpilot.starpilot.system.bluetooth.audio import BluetoothAudioSink
 from openpilot.starpilot.system.bluetooth.bluez import PairingAgent
+import openpilot.starpilot.system.bluetooth.daemon as daemon_module
 from openpilot.starpilot.system.bluetooth.daemon import BluetoothController
 from openpilot.starpilot.system.bluetooth.protocol import (A2DP_SINK_UUID, HID_UUID, BluetoothClient, BluetoothDevice, BluetoothStatus,
                                                            device_capabilities, is_phone, show_pairing_device)
@@ -424,6 +425,18 @@ def test_audio_uses_soundd_engage_alert_and_cleans_up():
   assert 2500 <= result["audio_test_delay_ms"] <= 3000
   assert params_memory.get("TestAlert") == "engage"
   assert not params.get_bool("BluetoothAudioTestActive")
+
+
+def test_status_attaches_phone_gps_state_to_the_linked_device(monkeypatch):
+  params = FakeParams(IsOffroad=True, BluetoothEnabled=True)
+  client = FakeBlueZ()
+  controller = BluetoothController(params, lambda: client, FakeRadio())
+
+  monkeypatch.setattr(daemon_module, "read_phone_status", lambda: ("00:11:22:33:44:55", "streaming"))
+  assert controller.status()["devices"][0]["gps"] == "streaming"
+
+  monkeypatch.setattr(daemon_module, "read_phone_status", lambda: ("AA:BB:CC:DD:EE:FF", "streaming"))
+  assert "gps" not in controller.status()["devices"][0]
 
 
 def test_audio_requires_connected_device_and_offroad():

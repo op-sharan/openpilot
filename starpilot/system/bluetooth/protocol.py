@@ -40,6 +40,9 @@ class BluetoothDevice:
   uuids: tuple[str, ...] = ()
   audio: bool = False
   controller: bool = False
+  phone: bool = False
+  # phone_gpsd link state for a phone: "streaming", "no_fix", "connected", or "" when not linked.
+  gps: str = ""
 
   @classmethod
   def from_dict(cls, value: dict[str, Any]) -> "BluetoothDevice":
@@ -54,6 +57,8 @@ class BluetoothDevice:
       uuids=tuple(str(uuid).lower() for uuid in value.get("uuids", ())),
       audio=bool(value.get("audio", False)),
       controller=bool(value.get("controller", False)),
+      phone=bool(value.get("phone", False)),
+      gps=str(value.get("gps", "")),
     )
 
 

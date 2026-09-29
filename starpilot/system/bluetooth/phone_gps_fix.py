@@ -14,6 +14,11 @@ import os
 import time
 
 PHONE_GPS_FIX_PATH = "/dev/shm/starpilot_phone_gps.json"
+# Link state for the Bluetooth settings screen, written by phone_gpsd, read by bluetooth_managerd.
+PHONE_GPS_STATUS_PATH = "/dev/shm/starpilot_phone_gps_status.json"
+
+# The phone app sends NMEA at ~1Hz; this long without bytes (or without a valid fix) counts as stale.
+PHONE_STATUS_STALE_S = 5.0
 
 # qcomgpsd only substitutes a phone fix this recent. Phones emit at 1Hz, so this tolerates a couple of
 # dropped epochs without ever publishing a position the car has already driven away from.
@@ -195,6 +200,40 @@ def read_phone_fix(path: str = PHONE_GPS_FIX_PATH, max_age: float = PHONE_FIX_MA
     return fix
   except Exception:
     return None
+
+
+def address_from_device_path(device_path: str) -> str:
+  # /org/bluez/hci0/dev_D4_3A_2C_63_2A_50 -> D4:3A:2C:63:2A:50
+  return device_path.rsplit("/", 1)[-1].removeprefix("dev_").replace("_", ":").upper()
+
+
+def write_phone_status(address: str, last_data: float | None, last_fix: float | None,
+                       path: str = PHONE_GPS_STATUS_PATH) -> None:
+  tmp_path = f"{path}.tmp"
+  with open(tmp_path, "w") as f:
+    json.dump({"address": address.upper(), "last_data": last_data, "last_fix": last_fix}, f)
+  os.replace(tmp_path, path)
+
+
+def read_phone_status(path: str = PHONE_GPS_STATUS_PATH, now: float | None = None) -> tuple[str, str]:
+  """Returns (address, state) where state is "streaming", "no_fix", "connected", or "" when not connected.
+
+  "no_fix" means NMEA is arriving but the phone has no GPS lock yet (e.g. indoors), which is still proof
+  the Bluetooth link works.
+  """
+  try:
+    with open(path) as f:
+      status = json.load(f)
+    now = time.monotonic() if now is None else now
+    address = str(status["address"]).upper()
+    last_fix, last_data = status.get("last_fix"), status.get("last_data")
+    if last_fix is not None and now - float(last_fix) <= PHONE_STATUS_STALE_S:
+      return address, "streaming"
+    if last_data is not None and now - float(last_data) <= PHONE_STATUS_STALE_S:
+      return address, "no_fix"
+    return address, "connected"
+  except Exception:
+    return "", ""
 
 
 def phone_fix_fields(fix: dict) -> dict:

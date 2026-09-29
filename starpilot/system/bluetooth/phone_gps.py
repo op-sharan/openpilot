@@ -16,8 +16,9 @@ from jeepney.io.threading import DBusRouter, open_dbus_connection
 from jeepney.low_level import HeaderFields, MessageType
 
 from openpilot.common.swaglog import cloudlog
-from openpilot.starpilot.system.bluetooth.bluez import BLUEZ, DEVICE_IFACE, OBJECT_MANAGER, unwrap_variant
-from openpilot.starpilot.system.bluetooth.phone_gps_fix import NmeaAccumulator, clear_phone_fix, write_phone_fix
+from openpilot.starpilot.system.bluetooth.bluez import ADAPTER_IFACE, BLUEZ, DEVICE_IFACE, OBJECT_MANAGER, unwrap_variant
+from openpilot.starpilot.system.bluetooth.phone_gps_fix import (PHONE_GPS_STATUS_PATH, NmeaAccumulator, address_from_device_path,
+                                                                clear_phone_fix, write_phone_fix, write_phone_status)
 from openpilot.starpilot.system.bluetooth.protocol import is_phone
 
 SPP_UUID = "00001101-0000-1000-8000-00805f9b34fb"
@@ -112,7 +113,16 @@ class PhoneGpsDaemon:
       self._fd = fd
       self._device_path = device_path
     cloudlog.warning(f"phone_gpsd: connected to {device_path}")
-    threading.Thread(target=self._read_loop, args=(fd,), daemon=True).start()
+    self._publish_status(device_path, None, None)
+    threading.Thread(target=self._read_loop, args=(fd, device_path), daemon=True).start()
+
+  @staticmethod
+  def _publish_status(device_path: str, last_data: float | None, last_fix: float | None) -> None:
+    # Only feeds the Bluetooth settings screen; never let it break the GPS link.
+    try:
+      write_phone_status(address_from_device_path(device_path), last_data, last_fix)
+    except OSError:
+      pass
 
   def _close_connection(self, reason: str) -> None:
     with self._state_lock:
@@ -125,11 +135,14 @@ class PhoneGpsDaemon:
     except OSError:
       pass
     clear_phone_fix()
+    clear_phone_fix(PHONE_GPS_STATUS_PATH)
     cloudlog.warning(f"phone_gpsd: disconnected from {device_path} ({reason})")
 
-  def _read_loop(self, fd: int) -> None:
+  def _read_loop(self, fd: int, device_path: str) -> None:
     accumulator = NmeaAccumulator()
     last_data = time.monotonic()
+    last_fix: float | None = None
+    last_status = 0.0
     first_fix = True
     reason = "stopped"
     try:
@@ -151,9 +164,13 @@ class PhoneGpsDaemon:
         last_data = now
         for fix in accumulator.feed_bytes(data):
           write_phone_fix(fix)
+          last_fix = now
           if first_fix:
             first_fix = False
             cloudlog.warning(f"phone_gpsd: first fix {fix['latitude']:.5f},{fix['longitude']:.5f} sats={fix['satellites']}")
+        if now - last_status >= 1.0:
+          last_status = now
+          self._publish_status(device_path, last_data, last_fix)
     except OSError as error:
       reason = str(error)
     self._close_connection(reason)
@@ -161,6 +178,9 @@ class PhoneGpsDaemon:
   def _connect_candidates(self) -> None:
     body = self._call("/", OBJECT_MANAGER, "GetManagedObjects")
     objects = unwrap_variant(body[0]) if body else {}
+    # Runs offroad too, so stay off the radio while bluetooth_managerd is scanning for devices to pair.
+    if any(interfaces.get(ADAPTER_IFACE, {}).get("Discovering", False) for interfaces in objects.values()):
+      return
     now = time.monotonic()
     for path, interfaces in objects.items():
       props = interfaces.get(DEVICE_IFACE)
@@ -180,6 +200,7 @@ class PhoneGpsDaemon:
 
   def run(self) -> None:
     clear_phone_fix()
+    clear_phone_fix(PHONE_GPS_STATUS_PATH)
     while not self._stop.is_set():
       try:
         if not self._registered:

@@ -249,6 +249,7 @@ class BlueZClient:
         "uuids": uuids,
         "audio": audio,
         "controller": controller,
+        "phone": phone,
       }
       if include_hidden or show_pairing_device(device["address"], device["name"], device["paired"], device["trusted"], device["connected"],
                                                device["blocked"], audio, controller, include_discovering, phone):

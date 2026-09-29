@@ -3,8 +3,9 @@ import json
 
 import pytest
 
-from openpilot.starpilot.system.bluetooth.phone_gps_fix import (KNOTS_TO_MS, NmeaAccumulator, clear_phone_fix, nmea_checksum_ok,
-                                                                phone_fix_fields, read_phone_fix, write_phone_fix)
+from openpilot.starpilot.system.bluetooth.phone_gps_fix import (KNOTS_TO_MS, NmeaAccumulator, address_from_device_path, clear_phone_fix,
+                                                                nmea_checksum_ok, phone_fix_fields, read_phone_fix, read_phone_status,
+                                                                write_phone_fix, write_phone_status)
 
 
 def sentence(body: str) -> str:
@@ -95,6 +96,26 @@ def test_read_never_raises(tmp_path):
   assert read_phone_fix(str(path), now=0.0) is None
   path.write_text(json.dumps({"mono": 0.0}))
   assert read_phone_fix(str(path), now=0.0) is None
+
+
+def test_phone_status_states(tmp_path):
+  path = str(tmp_path / "status.json")
+  assert read_phone_status(path, now=0.0) == ("", "")
+
+  assert address_from_device_path("/org/bluez/hci0/dev_d4_3a_2c_63_2a_50") == "D4:3A:2C:63:2A:50"
+  write_phone_status("d4:3a:2c:63:2a:50", None, None, path)
+  assert read_phone_status(path, now=100.0) == ("D4:3A:2C:63:2A:50", "connected")
+
+  write_phone_status("D4:3A:2C:63:2A:50", 100.0, None, path)
+  assert read_phone_status(path, now=101.0)[1] == "no_fix"
+
+  write_phone_status("D4:3A:2C:63:2A:50", 100.0, 100.0, path)
+  assert read_phone_status(path, now=101.0)[1] == "streaming"
+  # Data stopped long ago but the link file is still there: connected, not streaming.
+  assert read_phone_status(path, now=200.0)[1] == "connected"
+
+  clear_phone_fix(path)
+  assert read_phone_status(path, now=101.0) == ("", "")
 
 
 def test_phone_fix_fields():

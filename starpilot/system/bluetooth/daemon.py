@@ -9,6 +9,7 @@ from typing import Any
 from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
 from openpilot.starpilot.system.bluetooth.bluez import BlueZClient
+from openpilot.starpilot.system.bluetooth.phone_gps_fix import read_phone_status
 from openpilot.starpilot.system.bluetooth.protocol import BLUETOOTH_SOCKET_PATH
 from openpilot.starpilot.system.bluetooth.radio import BluetoothRadio
 
@@ -115,6 +116,10 @@ class BluetoothController:
       try:
         result.update(self._client().status())
         result["available"] = True
+        gps_address, gps_state = read_phone_status()
+        for device in result["devices"]:
+          if gps_address and device["address"].upper() == gps_address:
+            device["gps"] = gps_state
         self._bluez.agent.set_auto_accept_incoming(result["offroad"])
         prompt = result.get("prompt")
         if prompt is not None and self._pairing_address:
