@@ -17,6 +17,7 @@ def make_widget(mode="split", pending=False):
   widget._presentation = UnifiedSpeedPresentation(mode, "70", "65", "70", "+5", "mph", "Map Data", pending, "slc")
   widget._show_max = True
   widget._slc_state = None
+  widget._pedal_override = False
   widget.hud_renderer = SimpleNamespace(is_cruise_set=True)
   return widget
 
@@ -208,13 +209,126 @@ def test_enabled_slc_stays_full_width_when_plan_is_stale(monkeypatch):
   widget._snapshot_frame = None
   widget.hud_renderer = SimpleNamespace(is_cruise_available=True, is_cruise_set=True, set_speed=70)
   monkeypatch.setattr(unified_speed, "ui_state", SimpleNamespace(
-    sm=SimpleNamespace(frame=1), starpilot_toggles={}, is_metric=False,
+    sm=SimpleNamespace(frame=1), starpilot_toggles={}, is_metric=False, engaged=False,
   ))
   monkeypatch.setattr(unified_speed, "_is_slc_enabled", lambda: True)
   monkeypatch.setattr(unified_speed, "_get_slc_state", lambda: None)
   assert widget.get_size() == (520.0, 250.0)
   assert widget.is_visible
   assert widget._presentation.posted_speed_text == "–"
+
+
+@pytest.fixture
+def pedal_snapshot(monkeypatch):
+  class SubMaster(dict):
+    pass
+
+  sm = SubMaster(carState=SimpleNamespace(gasPressed=True))
+  sm.frame = 20
+  sm.valid = {"carState": True}
+  sm.alive = {"carState": True}
+  sm.recv_frame = {"carState": 20}
+  ui = SimpleNamespace(sm=sm, started_frame=10, engaged=True, starpilot_toggles={}, is_metric=False)
+  widget = make_widget()
+  widget._snapshot_frame = None
+  widget.hud_renderer = SimpleNamespace(is_cruise_available=True, is_cruise_set=True, set_speed=70)
+  monkeypatch.setattr(unified_speed, "ui_state", ui)
+  monkeypatch.setattr(unified_speed, "_is_slc_enabled", lambda: True)
+  monkeypatch.setattr(unified_speed, "_get_slc_state", lambda: None)
+  return widget, ui
+
+
+@pytest.mark.parametrize("gas,engaged,cruise_set,valid,alive,received,expected", [
+  (True, True, True, True, True, 20, True),
+  (False, True, True, True, True, 20, False),
+  (True, False, True, True, True, 20, False),
+  (True, True, False, True, True, 20, False),
+  (True, True, True, False, True, 20, False),
+  (True, True, True, True, False, 20, False),
+  (True, True, True, True, True, 9, False),
+])
+def test_pedal_override_requires_fresh_gas_and_engaged_cruise(pedal_snapshot, gas, engaged, cruise_set, valid, alive, received, expected):
+  widget, ui = pedal_snapshot
+  ui.sm["carState"].gasPressed = gas
+  ui.engaged = engaged
+  widget.hud_renderer.is_cruise_set = cruise_set
+  ui.sm.valid["carState"] = valid
+  ui.sm.alive["carState"] = alive
+  ui.sm.recv_frame["carState"] = received
+  widget._refresh_snapshot()
+  assert widget._pedal_override == expected
+
+
+def test_pedal_cue_clears_on_release_with_a_persistent_slc_override(pedal_snapshot, monkeypatch):
+  widget, ui = pedal_snapshot
+  sm = ui.sm
+  state = {
+    "speed_conversion": CV.MS_TO_MPH, "accepted_speed_limit_ms": 65 * CV.MPH_TO_MS,
+    "effective_target_ms": 70 * CV.MPH_TO_MS, "offset_ms": 5 * CV.MPH_TO_MS,
+    "speed_limit_changed": False, "unconfirmed_valid": False, "presented_source": "Map Data",
+    "slc_is_limiting_max_set": False, "slc_overridden_speed": 80 * CV.MPH_TO_MS,
+  }
+  monkeypatch.setattr(unified_speed, "_get_slc_state", lambda: state)
+  widget._refresh_snapshot()
+  assert widget._pedal_override
+  presentation = widget._presentation
+
+  sm["carState"].gasPressed = False
+  widget._refresh_snapshot()
+  assert widget._pedal_override
+  sm.frame += 1
+  sm.recv_frame["carState"] = sm.frame
+  widget._refresh_snapshot()
+  assert not widget._pedal_override
+  assert widget._presentation == presentation
+  assert widget._slc_state["slc_overridden_speed"] > 0
+
+
+@pytest.mark.parametrize("mode", ["split", "merged", "max_only", "limit_only"])
+@pytest.mark.parametrize("unit", ["mph", "km/h"])
+def test_pedal_cue_mutes_targets_and_preserves_units_offsets_and_layout(monkeypatch, mode, unit):
+  widget = make_widget(mode)
+  widget._pedal_override = True
+  widget._font_semi_bold = None
+  widget._show_max = mode != "limit_only"
+  widget._presentation = replace(widget._presentation, unit_text=unit)
+  if mode in ("max_only", "limit_only"):
+    widget._rect.width = 250
+  values, headers, pauses, offsets, lines = [], [], [], [], []
+  monkeypatch.setattr(unified_speed, "ui_state", SimpleNamespace(status=unified_speed.UIStatus.ENGAGED))
+  monkeypatch.setattr(unified_speed, "draw_control_card", lambda *args, **kwargs: None)
+  monkeypatch.setattr(unified_speed, "measure_text_cached", lambda *args: rl.Vector2(60, 28))
+  monkeypatch.setattr(rl, "draw_rectangle_rounded_lines_ex", lambda *args: None)
+  monkeypatch.setattr(rl, "draw_rectangle_rec", lambda *args: pauses.append(args))
+  monkeypatch.setattr(rl, "draw_line_ex", lambda *args: lines.append(args))
+  monkeypatch.setattr(widget, "_draw_merged_separator", lambda *args: None)
+  monkeypatch.setattr(widget, "_draw_header", lambda bounds, text, icon, color: headers.append(color))
+  monkeypatch.setattr(widget, "_draw_centered_text", lambda text, bounds, y, size, color, **kwargs: values.append((text, bounds, size, color)))
+  monkeypatch.setattr(widget, "_draw_offset_pill", lambda bounds, text, y: offsets.append(text))
+
+  widget._render(widget.rect)
+  speed_values = [value for value in values if value[2] == unified_speed.VALUE_FONT_SIZE]
+  unit_values = [value for value in values if value[2] == unified_speed.UNIT_FONT_SIZE]
+  expected_speeds = {"split": ["70", "65"], "merged": ["70"], "max_only": ["70"], "limit_only": ["65"]}
+  assert [value[0] for value in speed_values] == expected_speeds[mode]
+  assert all(value[3] == unified_speed.COLORS.DISENGAGED for value in speed_values + unit_values)
+  assert all(color == unified_speed.COLORS.DISENGAGED for color in headers)
+  assert [value[0] for value in unit_values] == [unit] * (2 if mode == "split" else 1)
+  assert len(pauses) == 2 * len(unit_values)
+  assert all(color == unified_speed.OFFSET_COLOR for _bounds, color in pauses)
+  assert offsets == ([] if mode == "max_only" else ["+5"])
+  assert not any(line[2] == 3 for line in lines)
+  for index, value in enumerate(unit_values):
+    pause = pauses[index * 2][0]
+    assert pause.x == pytest.approx(value[1].x + (value[1].width - 60) / 2 - 20)
+
+  values.clear()
+  pauses.clear()
+  widget._pedal_override = False
+  widget._render(widget.rect)
+  assert not pauses
+  assert all(value[3] == unified_speed.COLORS.WHITE for value in values if value[2] == unified_speed.VALUE_FONT_SIZE)
+  assert all(value[3] == unified_speed.COLORS.WHITE_TRANSLUCENT for value in values if value[2] == unified_speed.UNIT_FONT_SIZE)
 
 
 def test_split_merged_transitions_keep_the_same_footprint(monkeypatch):

@@ -31,6 +31,9 @@ HEADER_ICON_SIZE = 34
 HEADER_FONT_SIZE = 28
 VALUE_FONT_SIZE = 96
 UNIT_FONT_SIZE = 28
+PAUSE_ICON_WIDTH = 12
+PAUSE_ICON_HEIGHT = 14
+PAUSE_ICON_GAP = 8
 OFFSET_FONT_SIZE = 22
 OFFSET_PILL_HEIGHT = 30
 CONFIRMATION_COLOR = rl.Color(188, 132, 255, 255)
@@ -81,6 +84,7 @@ class UnifiedSpeedWidget(LayoutWidget):
     self._slc_enabled = False
     self._presentation: UnifiedSpeedPresentation | None = None
     self._show_max = False
+    self._pedal_override = False
     self._snapshot_frame: int | None = None
 
   def _refresh_snapshot(self) -> None:
@@ -93,6 +97,11 @@ class UnifiedSpeedWidget(LayoutWidget):
     self._show_max = (
       self.hud_renderer.is_cruise_available and
       not ui_state.starpilot_toggles.get("hide_max_speed", False)
+    )
+    self._pedal_override = (
+      self.hud_renderer.is_cruise_set and ui_state.engaged and
+      ui_state.sm.valid.get("carState", False) and ui_state.sm.alive.get("carState", False) and
+      ui_state.sm.recv_frame["carState"] >= ui_state.started_frame and ui_state.sm["carState"].gasPressed
     )
     self._presentation = resolve_unified_speed(
       self._show_max, self.hud_renderer.is_cruise_set, self.hud_renderer.set_speed,
@@ -158,17 +167,32 @@ class UnifiedSpeedWidget(LayoutWidget):
     rl.draw_rectangle_rounded_lines_ex(pill, roundness_for(pill, 17), 8, 2, OFFSET_COLOR)
     self._draw_centered_text(text, pill, y + (pill.height - text_size.y) / 2, OFFSET_FONT_SIZE, OFFSET_COLOR)
 
-  @staticmethod
-  def _max_header_color(active_side: str, cruise_set: bool) -> rl.Color:
+  def _draw_unit(self, bounds: rl.Rectangle, y: float) -> None:
+    text = tr(self._presentation.unit_text)
+    color = COLORS.WHITE_TRANSLUCENT
+    if self._pedal_override:
+      text_size = measure_text_cached(self._font_semi_bold, text, UNIT_FONT_SIZE)
+      text_shift = (PAUSE_ICON_WIDTH + PAUSE_ICON_GAP) / 2
+      icon_x = bounds.x + (bounds.width - text_size.x) / 2 - text_shift
+      icon_y = y + (text_size.y - PAUSE_ICON_HEIGHT) / 2
+      bar_width = PAUSE_ICON_WIDTH / 3
+      for x in (icon_x, icon_x + 2 * bar_width):
+        rl.draw_rectangle_rec(rl.Rectangle(x, icon_y, bar_width, PAUSE_ICON_HEIGHT), OFFSET_COLOR)
+      bounds = rl.Rectangle(bounds.x + text_shift, bounds.y, bounds.width, bounds.height)
+      color = COLORS.DISENGAGED
+    self._draw_centered_text(text, bounds, y, UNIT_FONT_SIZE, color)
+
+  def _max_header_color(self, active_side: str, cruise_set: bool) -> rl.Color:
+    if self._pedal_override:
+      return COLORS.DISENGAGED
     if cruise_set and ui_state.status == UIStatus.ENGAGED and active_side in ("max", "shared"):
       return COLORS.ENGAGED
     if cruise_set and ui_state.status in (UIStatus.DISENGAGED, UIStatus.OVERRIDE):
       return COLORS.DISENGAGED
     return COLORS.GREY
 
-  @staticmethod
-  def _limit_header_color(active_side: str, overridden: bool) -> rl.Color:
-    if overridden or ui_state.status in (UIStatus.DISENGAGED, UIStatus.OVERRIDE):
+  def _limit_header_color(self, active_side: str, overridden: bool) -> rl.Color:
+    if self._pedal_override or overridden or ui_state.status in (UIStatus.DISENGAGED, UIStatus.OVERRIDE):
       return COLORS.DISENGAGED
     if ui_state.status == UIStatus.ENGAGED and active_side in ("slc", "shared"):
       return COLORS.ENGAGED
@@ -176,7 +200,7 @@ class UnifiedSpeedWidget(LayoutWidget):
 
   def _draw_active_emphasis(self, rect: rl.Rectangle) -> None:
     presentation = self._presentation
-    if presentation.mode == "merged" or ui_state.status != UIStatus.ENGAGED or presentation.active_side == "none":
+    if self._pedal_override or presentation.mode == "merged" or ui_state.status != UIStatus.ENGAGED or presentation.active_side == "none":
       return
     if presentation.mode in ("max_only", "limit_only"):
       bounds = rect
@@ -222,6 +246,7 @@ class UnifiedSpeedWidget(LayoutWidget):
   def _render(self, rect: rl.Rectangle) -> None:
     presentation = self._presentation
     state = self._slc_state
+    speed_color = COLORS.DISENGAGED if self._pedal_override else COLORS.WHITE
     rl.draw_rectangle_rounded_lines_ex(
       rect, CONTROL_ROUNDNESS, CONTROL_SEGMENTS, 7,
       rl.Color(UNIFIED_ACCENT.r, UNIFIED_ACCENT.g, UNIFIED_ACCENT.b, 55),
@@ -240,12 +265,12 @@ class UnifiedSpeedWidget(LayoutWidget):
     max_bounds = rl.Rectangle(rect.x, rect.y, rect.width / 2, rect.height) if presentation.mode in ("split", "merged") else rect
     limit_bounds = self._speed_limit_bounds(rect)
     if self._show_max or presentation.confirmation_pending:
-      max_color = COLORS.DARK_GREY if not self.hud_renderer.is_cruise_set else COLORS.WHITE
+      max_color = COLORS.DARK_GREY if not self.hud_renderer.is_cruise_set else speed_color
       max_label_color = self._max_header_color(presentation.active_side, self.hud_renderer.is_cruise_set)
       self._draw_header(max_bounds, "MAX SET", "speedometer", max_label_color)
       if presentation.mode != "merged":
         self._draw_centered_text(presentation.max_speed_text, max_bounds, rect.y + 75, VALUE_FONT_SIZE, max_color, bold=True)
-        self._draw_centered_text(tr(presentation.unit_text), max_bounds, rect.y + 204, UNIT_FONT_SIZE, COLORS.WHITE_TRANSLUCENT)
+        self._draw_unit(max_bounds, rect.y + 204)
 
     if limit_bounds is not None:
       icon_key = source_icon_key(presentation.source)
@@ -253,16 +278,16 @@ class UnifiedSpeedWidget(LayoutWidget):
       label_color = self._limit_header_color(presentation.active_side, overridden)
       self._draw_header(limit_bounds, "SPEED LIMIT", icon_key, label_color)
       if presentation.mode != "merged":
-        self._draw_centered_text(presentation.posted_speed_text, limit_bounds, rect.y + 75, VALUE_FONT_SIZE, COLORS.WHITE, bold=True)
+        self._draw_centered_text(presentation.posted_speed_text, limit_bounds, rect.y + 75, VALUE_FONT_SIZE, speed_color, bold=True)
         if presentation.confirmation_pending:
           self._draw_centered_text(tr("PENDING"), limit_bounds, rect.y + 175, 25, CONFIRMATION_COLOR)
         elif presentation.offset_text is not None:
           self._draw_offset_pill(limit_bounds, presentation.offset_text, rect.y + 175)
-        self._draw_centered_text(tr(presentation.unit_text), limit_bounds, rect.y + 204, UNIT_FONT_SIZE, COLORS.WHITE_TRANSLUCENT)
+        self._draw_unit(limit_bounds, rect.y + 204)
 
     if presentation.mode == "merged":
-      self._draw_centered_text(presentation.effective_speed_text, rect, rect.y + 98, VALUE_FONT_SIZE, COLORS.WHITE, bold=True)
-      self._draw_centered_text(tr(presentation.unit_text), rect, rect.y + 204, UNIT_FONT_SIZE, COLORS.WHITE_TRANSLUCENT)
+      self._draw_centered_text(presentation.effective_speed_text, rect, rect.y + 98, VALUE_FONT_SIZE, speed_color, bold=True)
+      self._draw_unit(rect, rect.y + 204)
       if presentation.offset_text is not None:
         self._draw_offset_pill(
           limit_bounds, presentation.offset_text, rect.y + MERGED_SEPARATOR_Y - OFFSET_PILL_HEIGHT / 2,
