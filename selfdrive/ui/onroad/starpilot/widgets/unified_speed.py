@@ -38,6 +38,37 @@ UNIFIED_ACCENT = rl.Color(160, 96, 230, 230)
 OFFSET_COLOR = rl.Color(UNIFIED_ACCENT.r, UNIFIED_ACCENT.g, UNIFIED_ACCENT.b, 255)
 
 
+def _draw_header_icon(icon_key: str, x: float, y: float) -> None:
+  scale = max(1.0, gui_app._scale * max(gui_app._pixel_scale_x, gui_app._pixel_scale_y))
+  # Supersample for smooth edges.
+  texture_size = math.ceil(2 * HEADER_ICON_SIZE * scale)
+
+  def render() -> None:
+    rl.rl_push_matrix()
+    try:
+      texture_scale = texture_size / HEADER_ICON_SIZE
+      rl.rl_scalef(texture_scale, texture_scale, 1.0)
+      _draw_source_icon(icon_key, 0, 0, HEADER_ICON_SIZE, rl.WHITE)
+    finally:
+      rl.rl_pop_matrix()
+
+  texture = gui_app.cached_render_texture(
+    f"unified-speed-header:{icon_key}:{texture_size}", texture_size, texture_size, render,
+  )
+  if texture is None:
+    _draw_source_icon(icon_key, x, y, HEADER_ICON_SIZE, rl.WHITE)
+    return
+
+  rl.begin_blend_mode(rl.BlendMode.BLEND_ALPHA_PREMULTIPLY)
+  try:
+    rl.draw_texture_pro(
+      texture, rl.Rectangle(0, 0, texture_size, -texture_size),
+      rl.Rectangle(x, y, HEADER_ICON_SIZE, HEADER_ICON_SIZE), rl.Vector2(0, 0), 0.0, rl.WHITE,
+    )
+  finally:
+    rl.end_blend_mode()
+
+
 class UnifiedSpeedWidget(LayoutWidget):
   TOUCH_SLOP = 20
 
@@ -112,7 +143,7 @@ class UnifiedSpeedWidget(LayoutWidget):
     group_x = bounds.x + (bounds.width - group_width) / 2
     icon_y = bounds.y + 20
     if icon_key:
-      _draw_source_icon(icon_key, group_x, icon_y, HEADER_ICON_SIZE, rl.WHITE)
+      _draw_header_icon(icon_key, group_x, icon_y)
     rl.draw_text_ex(
       self._font_semi_bold, text,
       rl.Vector2(group_x + icon_width, icon_y + (HEADER_ICON_SIZE - text_size.y) / 2),

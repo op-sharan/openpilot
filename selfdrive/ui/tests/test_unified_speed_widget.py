@@ -21,6 +21,74 @@ def make_widget(mode="split", pending=False):
   return widget
 
 
+@pytest.fixture
+def header_icon_cache(monkeypatch):
+  app = object.__new__(type(unified_speed.gui_app))
+  app._scale = app._pixel_scale_x = app._pixel_scale_y = 1.0
+  app._cached_render_textures = {}
+  app._pending_render_textures = {}
+  geometry, draws, allocations, scales = [], [], [], []
+  monkeypatch.setattr(unified_speed, "gui_app", app)
+  monkeypatch.setattr(unified_speed, "_draw_source_icon", lambda *args: geometry.append(args))
+  monkeypatch.setattr(unified_speed, "measure_text_cached", lambda *args: rl.Vector2(100, 28))
+  monkeypatch.setattr(rl, "draw_text_ex", lambda *args: None)
+  monkeypatch.setattr(rl, "draw_texture_pro", lambda *args: draws.append(args))
+  monkeypatch.setattr(rl, "rl_scalef", lambda *args: scales.append(args))
+  for name in ("rl_push_matrix", "rl_pop_matrix", "begin_texture_mode", "end_texture_mode", "clear_background",
+               "rl_set_blend_factors_separate", "begin_blend_mode", "end_blend_mode", "set_texture_filter", "set_texture_wrap"):
+    monkeypatch.setattr(rl, name, lambda *args: None)
+
+  def allocate(width, height):
+    allocations.append((width, height))
+    return SimpleNamespace(texture=SimpleNamespace(width=width, height=height))
+
+  monkeypatch.setattr(rl, "load_render_texture", allocate)
+  return app, geometry, draws, allocations, scales
+
+
+def test_header_glyph_cache_is_shared_and_skips_geometry_after_first_frame(header_icon_cache):
+  app, geometry, draws, allocations, _scales = header_icon_cache
+  widgets = [make_widget(), make_widget()]
+  for widget in widgets:
+    widget._font_semi_bold = None
+  widget = widgets[0]
+  for label, icon in (("MAX SET", "speedometer"), ("SPEED LIMIT", "map")):
+    widget._draw_header(widget.rect, label, icon, rl.WHITE)
+  assert len(geometry) == 2
+  assert allocations == []
+  app._populate_render_texture_cache()
+  assert len(geometry) == 4
+
+  for frame in range(60):
+    widget = widgets[frame % 2]
+    bounds = rl.Rectangle(frame, frame, 260, 250)
+    widget._draw_header(bounds, "MAX SET", "speedometer", rl.WHITE)
+    widget._draw_header(bounds, f"LIMIT {frame}", "map", rl.GRAY)
+  assert len(geometry) == 4
+  assert len(draws) == 120
+  assert len(allocations) == len(app._cached_render_textures) == 2
+  assert app._pending_render_textures == {}
+
+
+@pytest.mark.parametrize("scale,dpi,texture_size", [(0.5, 1.0, 68), (1.0, 2.0, 136), (1.25, 1.5, 128)])
+def test_header_cache_resolution_preserves_logical_geometry(header_icon_cache, scale, dpi, texture_size):
+  app, geometry, draws, allocations, scales = header_icon_cache
+  app._scale, app._pixel_scale_x = scale, dpi
+  for icon in ("speedometer", "map", "camera", "dashboard", "next"):
+    unified_speed._draw_header_icon(icon, 10, 20)
+  app._populate_render_texture_cache()
+  assert len(app._cached_render_textures) == 5
+  assert allocations == [(texture_size, texture_size)] * 5
+  assert all(args[1:4] == (0, 0, 34) for args in geometry[5:])
+  assert scales == [(texture_size / 34, texture_size / 34, 1.0)] * 5
+
+  unified_speed._draw_header_icon("map", 200, 300)
+  assert len(geometry) == 10
+  source, destination = draws[-1][1:3]
+  assert (source.width, source.height) == (texture_size, -texture_size)
+  assert (destination.x, destination.y, destination.width, destination.height) == (200, 300, 34, 34)
+
+
 def test_speed_limit_hit_target_is_right_half_in_both_layouts():
   for mode in ("split", "merged"):
     right = make_widget(mode)._speed_limit_bounds(rl.Rectangle(30, 75, 520, 250))
