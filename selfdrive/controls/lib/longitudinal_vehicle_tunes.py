@@ -24,6 +24,8 @@ HONDA_ACCORD_STANDSTILL_GUARD_MAX_EGO_SPEED = 0.25
 HYUNDAI_ELANTRA_LEAD_FOLLOW_JERK_SCALE = 1.25
 GENESIS_GV70_ELECTRIFIED_LEAD_FOLLOW_JERK_SCALE = 1.75
 KIA_NIRO_EV_LEAD_FOLLOW_JERK_SCALE = 1.5
+KIA_NIRO_EV_FAR_FOLLOW_BRAKE_SLEW_RATE = 2.5
+KIA_NIRO_EV_FAR_FOLLOW_RELEASE_SLEW_RATE = 1.75
 GENESIS_GV70_ELECTRIFIED_SCC_JERK_UPPER = 1.5
 GENESIS_GV70_ELECTRIFIED_SCC_JERK_LOWER = 2.0
 GENESIS_GV70_ELECTRIFIED_SCC_URGENT_JERK_LOWER = 5.0
@@ -66,6 +68,7 @@ TOYOTA_SIENNA_POST_DEPARTURE_RESTOP_MIN_MODEL_PROB = 0.95
 TOYOTA_SIENNA_POST_DEPARTURE_RESTOP_MAX_LATERAL_OFFSET = 1.75
 TOYOTA_SIENNA_POST_DEPARTURE_RESTOP_MIN_BRAKE = 0.18
 TOYOTA_SIENNA_POST_DEPARTURE_RESTOP_MAX_BRAKE = 0.32
+TOYOTA_COROLLA_BRAKING_LEAD_MAX_DECEL = 1.5
 TOYOTA_RAV4_TSS2_EARLY_LEAD_MIN_EGO_SPEED = 12.0
 TOYOTA_RAV4_TSS2_EARLY_LEAD_MIN_MODEL_PROB = 0.85
 TOYOTA_RAV4_TSS2_EARLY_LEAD_MAX_LATERAL_OFFSET = 1.2
@@ -166,6 +169,31 @@ def get_toyota_prius_stopped_lead_obstacle_bias(CP, lead, v_ego):
   )
   bias = TOYOTA_PRIUS_STOPPED_LEAD_OBSTACLE_BIAS_M * strength
   return float(min(bias, max(distance - 0.5, 0.0)))
+
+
+def get_toyota_corolla_braking_lead_cap(CP, lead, v_ego, desired_gap, accel_min):
+  if (
+    getattr(CP, "brand", "") != "toyota" or
+    str(getattr(CP, "carFingerprint", "")) != "TOYOTA_COROLLA_TSS2" or
+    lead is None or not bool(getattr(lead, "status", False)) or
+    not bool(getattr(lead, "radar", False)) or
+    float(v_ego) < 10.0 or
+    float(getattr(lead, "vLead", 0.0)) < 2.0 or
+    abs(float(getattr(lead, "yRel", 0.0))) > 1.2
+  ):
+    return None
+
+  lead_brake = max(0.0, -float(getattr(lead, "aLeadK", 0.0)))
+  distance = float(getattr(lead, "dRel", float("inf")))
+  if (
+    lead_brake < 0.6 or
+    float(v_ego) - float(lead.vLead) < 0.75 or
+    distance <= 0.0 or distance > min(60.0, 3.0 * float(v_ego)) or
+    distance > float(desired_gap) + 6.0
+  ):
+    return None
+
+  return max(float(accel_min), -min(TOYOTA_COROLLA_BRAKING_LEAD_MAX_DECEL, 0.65 * lead_brake))
 
 
 def is_honda_crv_5g(CP):
@@ -532,6 +560,11 @@ def allow_radar_standstill_gap_settle(CP):
 
 
 def get_far_follow_output_slew_rates(CP):
+  if getattr(CP, "brand", "") == "hyundai" and str(getattr(CP, "carFingerprint", "")) == "KIA_NIRO_EV":
+    return (
+      KIA_NIRO_EV_FAR_FOLLOW_BRAKE_SLEW_RATE,
+      KIA_NIRO_EV_FAR_FOLLOW_RELEASE_SLEW_RATE,
+    )
   if CP.brand == "honda" and str(CP.carFingerprint) == "HONDA_ACCORD":
     return (
       HONDA_ACCORD_FAR_FOLLOW_BRAKE_SLEW_RATE,

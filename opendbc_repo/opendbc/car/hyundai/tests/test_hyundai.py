@@ -1316,6 +1316,103 @@ class TestHyundaiFingerprint:
     assert canfd_alt_buttons_cp.flags & HyundaiFlags.CANFD_ALT_BUTTONS
     assert not canfd_alt_buttons_fpcp.redneckCruiseAvailable
 
+  def test_sportage_hev_hda2_redneck_uses_stock_scc(self, monkeypatch):
+    class FakeParams:
+      def __init__(self, *args, **kwargs):
+        pass
+
+      @staticmethod
+      def get_bool(key):
+        return key == "RedneckCruise"
+
+    monkeypatch.setattr("opendbc.car.interfaces.Params", FakeParams)
+    toggles = get_test_toggles()
+    fingerprint = gen_empty_fingerprint()
+    can_bus = CanBus(None, fingerprint, True)
+    fingerprint[can_bus.CAM][0x110] = 32
+    fingerprint[can_bus.ECAN][0x1CF] = 8
+
+    CP = CarInterface.get_params(CAR.KIA_SPORTAGE_HEV_2026, fingerprint, [], False, False, False, toggles)
+    FPCP = CarInterface.get_starpilot_params(CAR.KIA_SPORTAGE_HEV_2026, fingerprint, [], CP, toggles)
+
+    assert CP.flags & HyundaiFlags.CANFD_LKA_STEERING
+    assert FPCP.redneckCruiseAvailable
+    assert not FPCP.pcmCruiseSpeed
+    assert CP.pcmCruise
+    assert not CP.openpilotLongitudinalControl
+    assert not CP.safetyConfigs[-1].safetyParam & HyundaiSafetyFlags.LONG
+    controller = CarInterface(CP, FPCP).CC
+    assert not controller.long_active_ecu
+
+    controller.frame = 30
+    CS = SimpleNamespace(redneck_send_button=1, buttons_counter=5)
+    msgs = controller._create_canfd_redneck_button_messages(CS)
+    assert len(msgs) == 20
+    assert all(msg[0] == 0x1CF and msg[2] == can_bus.ECAN for msg in msgs)
+    assert all(msg[1][2] & 0x7 == Buttons.RES_ACCEL for msg in msgs)
+
+    controller.frame = 60
+    CS.redneck_send_button = 2
+    msgs = controller._create_canfd_redneck_button_messages(CS)
+    assert len(msgs) == 20
+    assert all(msg[1][2] & 0x7 == Buttons.SET_DECEL for msg in msgs)
+
+    monkeypatch.setattr(FakeParams, "get_bool", staticmethod(lambda key: False))
+    CP = CarInterface.get_params(CAR.KIA_SPORTAGE_HEV_2026, fingerprint, [], False, False, False, toggles)
+    FPCP = CarInterface.get_starpilot_params(CAR.KIA_SPORTAGE_HEV_2026, fingerprint, [], CP, toggles)
+    assert FPCP.redneckCruiseAvailable
+    assert FPCP.pcmCruiseSpeed
+    assert CP.pcmCruise
+    assert not CP.openpilotLongitudinalControl
+
+  def test_sportage_redneck_rejects_unverified_button_layouts(self, monkeypatch):
+    class FakeParams:
+      def __init__(self, *args, **kwargs):
+        pass
+
+      @staticmethod
+      def get_bool(key):
+        return key == "RedneckCruise"
+
+    monkeypatch.setattr("opendbc.car.interfaces.Params", FakeParams)
+    toggles = get_test_toggles()
+    for button_address, button_bus, button_length, lka_steering in (
+      (0x1AA, 1, 16, True),
+      (0x1CF, 0, 8, True),
+      (0x1CF, 0, 8, False),
+      (0x1CF, 1, 16, True),
+    ):
+      fingerprint = gen_empty_fingerprint()
+      can_bus = CanBus(None, fingerprint, lka_steering)
+      if lka_steering:
+        fingerprint[can_bus.CAM][0x110] = 32
+      fingerprint[button_bus][button_address] = button_length
+
+      CP = CarInterface.get_params(CAR.KIA_SPORTAGE_HEV_2026, fingerprint, [], False, False, False, toggles)
+      FPCP = CarInterface.get_starpilot_params(CAR.KIA_SPORTAGE_HEV_2026, fingerprint, [], CP, toggles)
+      assert not FPCP.redneckCruiseAvailable
+      assert FPCP.pcmCruiseSpeed
+      assert CP.pcmCruise
+      assert not CP.openpilotLongitudinalControl
+
+    fingerprint = gen_empty_fingerprint()
+    can_bus = CanBus(None, fingerprint, True)
+    fingerprint[can_bus.CAM][0x110] = 32
+    fingerprint[can_bus.ECAN][0x1CF] = 8
+    fingerprint[can_bus.ECAN][0x1AA] = 16
+    CP = CarInterface.get_params(CAR.KIA_SPORTAGE_HEV_2026, fingerprint, [], False, False, False, toggles)
+    FPCP = CarInterface.get_starpilot_params(CAR.KIA_SPORTAGE_HEV_2026, fingerprint, [], CP, toggles)
+    assert not FPCP.redneckCruiseAvailable
+
+    fingerprint = gen_empty_fingerprint()
+    can_bus = CanBus(None, fingerprint, True)
+    fingerprint[can_bus.CAM][0x110] = 32
+    fingerprint[can_bus.ECAN][0x1CF] = 8
+    CP = CarInterface.get_params(CAR.KIA_SPORTAGE_HEV_2026, fingerprint, [], False, False, False, toggles)
+    CP.openpilotLongitudinalControl = True
+    FPCP = CarInterface.get_starpilot_params(CAR.KIA_SPORTAGE_HEV_2026, fingerprint, [], CP, toggles)
+    assert not FPCP.redneckCruiseAvailable
+
   def test_hyundai_non_scc_without_redneck_keeps_stock_longitudinal_mode(self, monkeypatch):
     class FakeParams:
       def __init__(self, *args, **kwargs):
