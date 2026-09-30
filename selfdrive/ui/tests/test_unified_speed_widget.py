@@ -101,7 +101,7 @@ def test_split_and_merged_draw_one_card_with_both_headers(monkeypatch):
     assert sum(line[0].x == line[1].x == 290 for line in lines) == (1 if mode == "split" else 0)
     assert values == (["70", "mph"] if mode == "merged" else ["70", "mph", "65", "mph"])
     assert offsets[0][0].x == 290
-    assert offsets[0][2] == (144 if mode == "merged" else 250)
+    assert offsets[0][2] == (136 if mode == "merged" else 250)
   assert len(cards) == 2
 
 

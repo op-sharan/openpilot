@@ -26,14 +26,16 @@ from openpilot.system.ui.lib.text_measure import measure_text_cached
 UNIFIED_WIDTH = 520
 UNIFIED_HEIGHT = 250
 SINGLE_WIDTH = 250
+MERGED_SEPARATOR_Y = 76
 HEADER_ICON_SIZE = 34
 HEADER_FONT_SIZE = 28
 VALUE_FONT_SIZE = 96
 UNIT_FONT_SIZE = 28
-OFFSET_FONT_SIZE = 25
+OFFSET_FONT_SIZE = 22
+OFFSET_PILL_HEIGHT = 30
 CONFIRMATION_COLOR = rl.Color(188, 132, 255, 255)
-OFFSET_COLOR = rl.Color(188, 156, 226, 220)
 UNIFIED_ACCENT = rl.Color(160, 96, 230, 230)
+OFFSET_COLOR = rl.Color(UNIFIED_ACCENT.r, UNIFIED_ACCENT.g, UNIFIED_ACCENT.b, 255)
 
 
 class UnifiedSpeedWidget(LayoutWidget):
@@ -120,8 +122,8 @@ class UnifiedSpeedWidget(LayoutWidget):
   def _draw_offset_pill(self, bounds: rl.Rectangle, text: str, y: float) -> None:
     text_size = measure_text_cached(self._font_semi_bold, text, OFFSET_FONT_SIZE)
     width = max(56.0, text_size.x + 20.0)
-    pill = rl.Rectangle(bounds.x + (bounds.width - width) / 2, y, width, 30)
-    rl.draw_rectangle_rounded(pill, roundness_for(pill, 17), 8, rl.Color(32, 20, 45, 170))
+    pill = rl.Rectangle(bounds.x + (bounds.width - width) / 2, y, width, OFFSET_PILL_HEIGHT)
+    rl.draw_rectangle_rounded(pill, roundness_for(pill, 17), 8, rl.Color(32, 20, 45, 255))
     rl.draw_rectangle_rounded_lines_ex(pill, roundness_for(pill, 17), 8, 2, OFFSET_COLOR)
     self._draw_centered_text(text, pill, y + (pill.height - text_size.y) / 2, OFFSET_FONT_SIZE, OFFSET_COLOR)
 
@@ -161,7 +163,7 @@ class UnifiedSpeedWidget(LayoutWidget):
 
   def _draw_merged_separator(self, rect: rl.Rectangle) -> None:
     center = rect.x + rect.width / 2
-    shelf_y = rect.y + 76
+    shelf_y = rect.y + MERGED_SEPARATOR_Y
     valley_y = shelf_y + 12
     color = rl.Color(UNIFIED_ACCENT.r, UNIFIED_ACCENT.g, UNIFIED_ACCENT.b, 170)
     rl.draw_line_ex(rl.Vector2(rect.x + 18, shelf_y), rl.Vector2(center - 34, shelf_y), 2, color)
@@ -231,7 +233,9 @@ class UnifiedSpeedWidget(LayoutWidget):
       self._draw_centered_text(presentation.effective_speed_text, rect, rect.y + 98, VALUE_FONT_SIZE, COLORS.WHITE, bold=True)
       self._draw_centered_text(tr(presentation.unit_text), rect, rect.y + 204, UNIT_FONT_SIZE, COLORS.WHITE_TRANSLUCENT)
       if presentation.offset_text is not None:
-        self._draw_offset_pill(limit_bounds, presentation.offset_text, rect.y + 69)
+        self._draw_offset_pill(
+          limit_bounds, presentation.offset_text, rect.y + MERGED_SEPARATOR_Y - OFFSET_PILL_HEIGHT / 2,
+        )
 
     if presentation.confirmation_pending and limit_bounds is not None:
       intensity = (1.0 + math.sin(2.0 * math.pi * rl.get_time())) / 2.0
