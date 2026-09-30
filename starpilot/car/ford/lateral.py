@@ -85,6 +85,8 @@ MACH_E_PATH_ANGLE_MAX = 0.16
 MACH_E_PATH_ANGLE_STEP = 0.055
 MACH_E_PATH_ANGLE_FADE_START_SPEED = 8.0
 MACH_E_PATH_ANGLE_MAX_SPEED = 8.8
+MACH_E_PATH_ANGLE_TRACKING_FACTOR = 0.75
+MACH_E_PATH_ANGLE_DRIVER_COOLDOWN = 0.75
 FORD_CURVATURE_LOOKAHEAD = {
   CAR.FORD_EXPLORER_MK6: 0.20,
 }
@@ -171,6 +173,7 @@ class FordLateralController:
     self.curvature_samples = deque(maxlen=max(2, round(0.3 / STEER_DT)))
     self.curvature_last = 0.0
     self.path_angle_last = 0.0
+    self.path_angle_driver_cooldown = 0.0
     self.desired_curvature_last = 0.0
     self._frame = 0
     self._update_params()
@@ -232,18 +235,28 @@ class FordLateralController:
       deficit, [MACH_E_UNDERSTEER_ERROR_MIN_DEFICIT, MACH_E_UNDERSTEER_ERROR_FULL_DEFICIT], [0.0, 1.0]))
     return base + (MACH_E_UNDERSTEER_ERROR_MAX - base) * speed_weight * deficit_weight
 
-  def _path_angle_assist(self, requested: float, desired: float, applied: float, v_ego: float,
+  def _path_angle_assist(self, requested: float, desired: float, applied: float, current: float, v_ego: float,
                          steering_pressed: bool, lane_change: bool) -> float:
+    if steering_pressed:
+      self.path_angle_driver_cooldown = MACH_E_PATH_ANGLE_DRIVER_COOLDOWN
+    else:
+      self.path_angle_driver_cooldown = max(0.0, self.path_angle_driver_cooldown - STEER_DT)
     target = 0.0
     if (self.CP.carFingerprint == CAR.FORD_MUSTANG_MACH_E_MK1 and self.CP.flags & FordFlags.CANFD and
-        not steering_pressed and not lane_change and 3.0 <= v_ego < MACH_E_PATH_ANGLE_MAX_SPEED and
+        not steering_pressed and self.path_angle_driver_cooldown == 0.0 and not lane_change and
+        3.0 <= v_ego < MACH_E_PATH_ANGLE_MAX_SPEED and
         requested * desired > 0.0 and requested * applied > 0.0 and
-        abs(requested) > 0.021 and abs(desired) > 0.021 and abs(applied) >= 0.0195):
+        abs(requested) > 0.0198 and abs(desired) > 0.016 and abs(applied) >= 0.0195 and
+        np.sign(desired) * (desired - current) > 0.002):
       max_curvature = MAX_LATERAL_ACCEL / v_ego ** 2
-      residual = max(0.0, min(abs(requested), abs(desired), max_curvature) - abs(applied))
+      residual = max(0.0, min(max(abs(requested), abs(desired)), max_curvature) - abs(applied))
+      tracking_deficit = max(0.0, np.sign(applied) * (applied - current))
+      acceleration_headroom = max(0.0, (max_curvature - abs(applied)) * v_ego)
       speed_weight = float(np.interp(
         v_ego, [MACH_E_PATH_ANGLE_FADE_START_SPEED, MACH_E_PATH_ANGLE_MAX_SPEED], [1.0, 0.0]))
-      target = float(np.sign(applied) * min(residual * v_ego * speed_weight, MACH_E_PATH_ANGLE_MAX))
+      target = float(np.sign(applied) * min(
+        (residual + MACH_E_PATH_ANGLE_TRACKING_FACTOR * tracking_deficit) * v_ego,
+        acceleration_headroom, MACH_E_PATH_ANGLE_MAX) * speed_weight)
     if target == 0.0 or target * self.path_angle_last < 0.0:
       self.path_angle_last = 0.0
     else:
@@ -477,11 +490,14 @@ class FordLateralController:
       self.curvature_samples.clear()
       self.curvature_last = 0.0
       self.path_angle_last = 0.0
+      self.path_angle_driver_cooldown = 0.0
       self.desired_curvature_last = 0.0
       return FordLateralResult()
 
     manual_turn = self._manual_turn(CC, CS, float(actuators.curvature))
     if manual_turn or CS.out.vEgoRaw < 0.1:
+      if CS.out.steeringPressed:
+        self.path_angle_driver_cooldown = MACH_E_PATH_ANGLE_DRIVER_COOLDOWN
       self.curvature_samples.clear()
       self.curvature_last = 0.0
       self.path_angle_last = 0.0
@@ -557,7 +573,7 @@ class FordLateralController:
       max_curvature = MAX_LATERAL_ACCEL / max(v_ego, 1.0) ** 2
       applied = float(np.clip(applied, -max_curvature, max_curvature))
     path_angle = self._path_angle_assist(
-      requested, desired, applied, v_ego, bool(CS.out.steeringPressed), self._lane_change()[0])
+      requested, desired, applied, current, v_ego, bool(CS.out.steeringPressed), self._lane_change()[0])
 
     self.curvature_samples.append(predicted)
     curvature_rate = 0.0
