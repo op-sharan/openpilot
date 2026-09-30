@@ -1796,6 +1796,24 @@ class TestHyundaiFingerprint:
     assert exact
     assert matches == {candidate}
 
+  @pytest.mark.parametrize("camera_fw", [
+    b'\xf1\x00CL4 MFC  AT CAN LHD 1.00 1.02 99210-GG000 240708',
+    b'\xf1\x00CL4 MFC  AT USA LHD 1.00 1.02 99210-GG000 240708',
+    b'\xf1\x00CL4 MFC  AT USA LHD 1.00 1.04 99210-GG100 251205',
+  ])
+  @pytest.mark.parametrize("radar_fw", [
+    b'\xf1\x00CL4_ RDR -----      1.00 1.01 99110-GG000         ',
+    b'\xf1\x00CL4_ RDR -----      1.00 1.01 99110-GG100         ',
+  ])
+  def test_k4_2025_2026_fw_exact_matches(self, camera_fw, radar_fw):
+    car_fw = [
+      CarParams.CarFw(ecu=Ecu.fwdCamera, fwVersion=camera_fw, address=0x7c4, brand="hyundai"),
+      CarParams.CarFw(ecu=Ecu.fwdRadar, fwVersion=radar_fw, address=0x7d0, brand="hyundai"),
+    ]
+    exact, matches = match_fw_to_car(car_fw, "", allow_exact=True, allow_fuzzy=False, log=False)
+    assert exact
+    assert matches == {CAR.KIA_K4_2025}
+
   def test_staria_2023_australian_route_fw_exact_matches(self):
     route_fw = {
       (Ecu.fwdCamera, 0x7c4): b'\xf1\x00US4 MFC  AT AUS RHD 1.00 1.04 99211-CG000 210819',

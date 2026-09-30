@@ -171,6 +171,13 @@ def get_toyota_prius_stopped_lead_obstacle_bias(CP, lead, v_ego):
   return float(min(bias, max(distance - 0.5, 0.0)))
 
 
+def use_stopped_lead_position(CP):
+  return (
+    getattr(CP, "brand", "") == "toyota" and
+    str(getattr(CP, "carFingerprint", "")) == "TOYOTA_COROLLA_TSS2"
+  )
+
+
 def get_toyota_corolla_braking_lead_cap(CP, lead, v_ego, desired_gap, accel_min):
   if (
     getattr(CP, "brand", "") != "toyota" or

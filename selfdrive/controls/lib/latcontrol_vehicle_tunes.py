@@ -280,7 +280,9 @@ GENESIS_GV70_HIGHWAY_STABILIZER_CENTER_LAT_BP = [0.75, 1.0]
 GENESIS_GV70_HIGHWAY_STABILIZER_BASELINE_RC = 0.85
 GENESIS_GV70_HIGHWAY_STABILIZER_BLEND_RC = 0.35
 GENESIS_GV70_HIGHWAY_STABILIZER_REVERSAL_LAT = 0.06
-GENESIS_GV70_HIGHWAY_STABILIZER_REVERSAL_WINDOW = 4.0
+GENESIS_GV70_HIGHWAY_STABILIZER_REVERSAL_WINDOW = 6.0
+GENESIS_GV70_HIGHWAY_STABILIZER_RECOVERY_SECONDS = 4.0
+GENESIS_GV70_HIGHWAY_STABILIZER_DIRECTION_CHANGE_LAT = 0.35
 GENESIS_GV70_HIGHWAY_STABILIZER_REDUCTION = 0.70
 GENESIS_GV70_HIGHWAY_STABILIZER_MAX_DELTA = 0.20
 
@@ -362,6 +364,8 @@ GENESIS_G70_OUTPUT_SMOOTHING_CENTER_RC = 0.18
 GENESIS_G70_OUTPUT_SMOOTHING_CURVE_RC = 0.10
 GENESIS_G70_OUTPUT_SMOOTHING_RELEASE_RC = 0.03
 GENESIS_G70_OUTPUT_SMOOTHING_OVERSHOOT = 0.08
+GENESIS_G70_HIGHWAY_STABILIZER_CENTER_LAT_BP = [1.0, 1.4]
+GENESIS_G70_HIGHWAY_STABILIZER_CURVE_EXIT_LAT = 0.15
 GENESIS_G70_ANGLE_OUTPUT_TAPER_MIN = 0.45
 GENESIS_G70_ANGLE_OUTPUT_TAPER_START = 70.0
 GENESIS_G70_ANGLE_OUTPUT_TAPER_WIDTH = 6.0
@@ -3305,8 +3309,10 @@ def get_genesis_gv70_stabilized_output(output_torque: float, prev_output_torque:
   return float(output_torque + speed_weight * (smoothed_output - output_torque))
 
 
-class GenesisGV70HighwayCommandStabilizer:
-  def __init__(self) -> None:
+class GenesisHighwayCommandStabilizer:
+  def __init__(self, center_lat_bp: list[float], curve_exit_lat: float = 0.0) -> None:
+    self.center_lat_bp = tuple(center_lat_bp)
+    self.curve_exit_lat = curve_exit_lat
     self.reset()
 
   def reset(self) -> None:
@@ -3315,6 +3321,8 @@ class GenesisGV70HighwayCommandStabilizer:
     self.reversals: deque[float] = deque()
     self.elapsed = 0.0
     self.blend = 0.0
+    self.active_until = 0.0
+    self.curve_direction = 0
 
   def update(self, curvature: float, v_ego: float, enabled: bool, dt: float) -> float:
     if not enabled or v_ego <= GENESIS_GV70_HIGHWAY_STABILIZER_SPEED_BP[0] or not math.isfinite(curvature):
@@ -3325,13 +3333,20 @@ class GenesisGV70HighwayCommandStabilizer:
     lateral_accel = curvature * v_ego ** 2
     if self.baseline is None:
       self.baseline = lateral_accel
+    if abs(self.baseline) >= GENESIS_GV70_HIGHWAY_STABILIZER_DIRECTION_CHANGE_LAT:
+      self.curve_direction = 1 if self.baseline > 0.0 else -1
+    if self.curve_direction * lateral_accel < 0.0:
+      self.reset()
+      self.baseline = lateral_accel
+      return curvature
     self.baseline += dt / (GENESIS_GV70_HIGHWAY_STABILIZER_BASELINE_RC + dt) * (lateral_accel - self.baseline)
     residual = lateral_accel - self.baseline
 
-    if abs(lateral_accel) >= GENESIS_GV70_HIGHWAY_STABILIZER_CENTER_LAT_BP[1]:
+    if abs(lateral_accel) >= self.center_lat_bp[1]:
       self.last_sign = 0
       self.reversals.clear()
       self.blend = 0.0
+      self.active_until = 0.0
       return curvature
 
     sign = 0
@@ -3347,13 +3362,36 @@ class GenesisGV70HighwayCommandStabilizer:
       self.reversals.popleft()
 
     speed_weight = float(np.interp(v_ego, GENESIS_GV70_HIGHWAY_STABILIZER_SPEED_BP, [0.0, 1.0]))
-    target_blend = speed_weight if len(self.reversals) >= 3 else 0.0
+    if len(self.reversals) >= 3:
+      self.active_until = self.elapsed + GENESIS_GV70_HIGHWAY_STABILIZER_RECOVERY_SECONDS
+    target_blend = speed_weight if self.elapsed < self.active_until else 0.0
     self.blend += dt / (GENESIS_GV70_HIGHWAY_STABILIZER_BLEND_RC + dt) * (target_blend - self.blend)
-    center_weight = float(np.interp(abs(lateral_accel), GENESIS_GV70_HIGHWAY_STABILIZER_CENTER_LAT_BP, [1.0, 0.0]))
+    center_weight = float(np.interp(abs(lateral_accel), self.center_lat_bp, [1.0, 0.0]))
+    if self.curve_direction and self.curve_exit_lat > 0.0:
+      center_weight *= float(np.interp(abs(lateral_accel), [0.0, self.curve_exit_lat], [0.0, 1.0]))
     correction = float(np.clip(GENESIS_GV70_HIGHWAY_STABILIZER_REDUCTION * residual,
                                -GENESIS_GV70_HIGHWAY_STABILIZER_MAX_DELTA,
                                GENESIS_GV70_HIGHWAY_STABILIZER_MAX_DELTA))
     return float((lateral_accel - self.blend * center_weight * correction) / v_ego ** 2)
+
+
+class GenesisGV70HighwayCommandStabilizer(GenesisHighwayCommandStabilizer):
+  def __init__(self) -> None:
+    super().__init__(GENESIS_GV70_HIGHWAY_STABILIZER_CENTER_LAT_BP)
+
+
+class GenesisG70HighwayCommandStabilizer(GenesisHighwayCommandStabilizer):
+  def __init__(self) -> None:
+    super().__init__(GENESIS_G70_HIGHWAY_STABILIZER_CENTER_LAT_BP, GENESIS_G70_HIGHWAY_STABILIZER_CURVE_EXIT_LAT)
+
+
+def get_genesis_highway_command_stabilizer(car_fingerprint: str, torque_control: bool) -> GenesisHighwayCommandStabilizer | None:
+  if torque_control:
+    if car_fingerprint in GENESIS_G70_CARS:
+      return GenesisG70HighwayCommandStabilizer()
+    if car_fingerprint in GENESIS_GV70_CARS:
+      return GenesisGV70HighwayCommandStabilizer()
+  return None
 
 
 def get_genesis_g70_friction_threshold(v_ego: float, desired_lateral_accel: float = 0.0,

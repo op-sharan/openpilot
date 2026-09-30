@@ -10,7 +10,7 @@ from opendbc.car.secoc import add_mac, build_sync_mac
 from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.toyota import toyotacan
 from opendbc.car.toyota.values import CAR, MIN_ACC_SPEED, NO_STOP_TIMER_CAR, PEDAL_TRANSITION, TSS2_CAR, \
-                                        CarControllerParams, ToyotaFlags, \
+                                        CarControllerParams, ToyotaFlags, ToyotaSafetyFlags, \
                                         UNSUPPORTED_DSU_CAR, LEGACY_PRIUS_CAR, TOYOTA_AUTO_HOLD_CARS, TOYOTA_AUTO_HOLD_AEB_CARS
 from opendbc.can import CANPacker
 
@@ -68,6 +68,11 @@ def is_ths_hybrid(CP) -> bool:
   return CP.carFingerprint in LEGACY_PRIUS_CAR or is_camry_hybrid(CP)
 
 
+def uses_rav4_hybrid_sdsu_longitudinal(CP) -> bool:
+  return bool(CP.carFingerprint == CAR.TOYOTA_RAV4H and CP.openpilotLongitudinalControl and
+              CP.safetyConfigs[0].safetyParam & ToyotaSafetyFlags.LONG_FILTER.value)
+
+
 def should_bypass_toyota_long_pid(CP, starpilot_toggles=None) -> bool:
   highlander_sdsu = (
     CP.carFingerprint == CAR.TOYOTA_HIGHLANDER and
@@ -107,7 +112,7 @@ def get_long_tune(CP, params):
   kiV = [0.5, 0.25]
   k_f = 1.0
 
-  if is_ths_hybrid(CP):
+  if is_ths_hybrid(CP) or uses_rav4_hybrid_sdsu_longitudinal(CP):
     k_f = 0.8 if CP.carFingerprint in LEGACY_PRIUS_CAR else 1.0
   elif CP.carFingerprint not in TSS2_CAR:
     kiBP = [0., 5., 35.]

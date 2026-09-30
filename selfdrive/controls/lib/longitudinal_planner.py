@@ -36,6 +36,7 @@ from openpilot.selfdrive.controls.lib.longitudinal_vehicle_tunes import (
   is_toyota_rav4_tss2_post_departure_tune,
   get_toyota_rav4_tss2_early_lead_cap,
   get_toyota_corolla_braking_lead_cap,
+  use_stopped_lead_position,
   is_toyota_rav4_tss2_radar_follow_lead,
   get_toyota_sienna_post_departure_restop_cap,
   get_untracked_slow_lead_decel_scale,
@@ -579,7 +580,7 @@ def get_accel_from_plan(speeds, accels, action_t=DT_MDL, vEgoStopping=0.05):
 class LongitudinalPlanner:
   def __init__(self, CP, init_v=0.0, init_a=0.0, dt=DT_MDL):
     self.CP = CP
-    self.mpc = LongitudinalMpc(dt=dt)
+    self.mpc = LongitudinalMpc(dt=dt, hold_stopped_lead_position=use_stopped_lead_position(CP))
     self.fcw = False
     self.dt = dt
     self.model_allow_throttle = True
