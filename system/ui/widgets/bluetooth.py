@@ -35,16 +35,30 @@ TEXT_DISABLED = rl.Color(150, 150, 150, 255)
 TEXT_CONNECTED = rl.Color(113, 209, 135, 255)
 
 
+PHONE_GPS_STATE_TEXT = {
+  "streaming": "streaming",
+  "no_fix": "connected, no GPS lock on phone",
+  "connected": "connected, waiting for data",
+}
+
+
 def device_status_text(device: BluetoothDevice, operation: str, selected_audio: str) -> str:
   """Return the concise, state-first label shown below a Bluetooth device name."""
   if operation:
     return operation.capitalize() + "..."
+
+  # BlueZ's Connected flag also covers a phone's failed audio/call profile attempts, so show phone_gpsd's link instead.
+  if device.phone and device.paired:
+    state = PHONE_GPS_STATE_TEXT.get(device.gps)
+    return tr("Phone - GPS source") + (f" - {tr(state)}" if state else "")
 
   capabilities = []
   if device.audio:
     capabilities.append(tr("audio output") if selected_audio.upper() == device.address.upper() else tr("audio"))
   if device.controller:
     capabilities.append(tr("controller"))
+  if device.phone:
+    capabilities.append(tr("phone"))
   capability_text = " / ".join(capabilities)
 
   if device.connected:
@@ -52,6 +66,12 @@ def device_status_text(device: BluetoothDevice, operation: str, selected_audio: 
   if device.paired:
     return tr("Paired - tap to connect")
   return tr("Tap to pair") + (f" / {capability_text}" if capability_text else "")
+
+
+def device_status_connected(device: BluetoothDevice) -> bool:
+  if device.phone and device.paired:
+    return device.gps == "streaming"
+  return device.connected
 
 
 def device_action_allowed(device: BluetoothDevice, operation: str, offroad: bool) -> bool:
@@ -126,7 +146,7 @@ class BluetoothDeviceRow(Widget):
 
     status_rect = rl.Rectangle(text_rect.x, rect.y + 82, text_rect.width, 52)
     status = device_status_text(state.device, state.operation, state.selected_audio)
-    status_color = TEXT_CONNECTED if state.device.connected and not state.operation else TEXT_SECONDARY
+    status_color = TEXT_CONNECTED if device_status_connected(state.device) and not state.operation else TEXT_SECONDARY
     if not enabled:
       status_color = TEXT_DISABLED
     gui_label(status_rect, status, font_size=39, color=status_color)
@@ -264,6 +284,13 @@ class BluetoothManagerUI(Widget):
       return
     if not device.paired:
       self._manager.pair(device.address)
+    elif device.phone:
+      # A generic Connect only tries audio/call profiles and hangs on "connecting"; phone_gpsd opens the GPS link itself.
+      if device.gps:
+        message = tr("Receiving GPS from this phone.")
+      else:
+        message = tr("Start the Bluetooth stream in your phone's GPS app. The comma connects to it automatically.")
+      gui_app.push_widget(alert_dialog(message))
     elif not device.connected:
       self._manager.connect(device.address)
     else:

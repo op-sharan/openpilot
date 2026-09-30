@@ -9,7 +9,7 @@ from jeepney.io.threading import DBusRouter, open_dbus_connection
 from jeepney.low_level import HeaderFields, MessageType
 from jeepney.wrappers import Properties
 
-from openpilot.starpilot.system.bluetooth.protocol import device_capabilities, show_pairing_device
+from openpilot.starpilot.system.bluetooth.protocol import device_capabilities, is_phone, show_pairing_device
 
 
 BLUEZ = "org.bluez"
@@ -236,6 +236,7 @@ class BlueZClient:
       props = interfaces[DEVICE_IFACE]
       uuids = [str(value).lower() for value in props.get("UUIDs", [])]
       audio, controller = device_capabilities(uuids, int(props.get("Class", 0)), str(props.get("Icon", "")))
+      phone = is_phone(int(props.get("Class", 0)), str(props.get("Icon", "")))
       device = {
         "path": path,
         "address": str(props.get("Address", "")),
@@ -248,9 +249,10 @@ class BlueZClient:
         "uuids": uuids,
         "audio": audio,
         "controller": controller,
+        "phone": phone,
       }
       if include_hidden or show_pairing_device(device["address"], device["name"], device["paired"], device["trusted"], device["connected"],
-                                               device["blocked"], audio, controller, include_discovering):
+                                               device["blocked"], audio, controller, include_discovering, phone):
         devices.append(device)
     return sorted(devices, key=lambda device: (not device["connected"], not device["paired"], -(device["rssi"] or -127), device["name"].lower()))
 
