@@ -12,7 +12,7 @@ _adrv_0x51_templates: dict[CAR, bytes] = {}
 
 
 def cache_adrv_0x51_template(car_fingerprint: CAR, dat: bytes | None) -> None:
-  if car_fingerprint != CAR.KIA_EV6:
+  if car_fingerprint not in (CAR.KIA_EV6, CAR.GENESIS_GV70_ELECTRIFIED_1ST_GEN):
     return
 
   if dat is None:
@@ -26,7 +26,6 @@ def create_adrv_0x51(packer, CAN, frame: int, car_fingerprint: CAR | None = None
   if template is None:
     return packer.make_can_msg("ADRV_0x51", CAN.ACAN, {})
 
-  # EV6 MRR30 tracks stop when the ADAS takeover replaces this platform payload with zeros.
   dat = bytearray(template)
   dat[2] = (template[2] + frame + 1) & 0xFF
   dat[3] = (dat[3] & ~0x1) | int(drive_gear)

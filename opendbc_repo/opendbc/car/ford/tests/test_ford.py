@@ -9,7 +9,7 @@ import pytest
 from opendbc.car import Bus, gen_empty_fingerprint
 from opendbc.can import CANPacker
 from opendbc.car.ford import fordcan
-from opendbc.car.ford.carcontroller import FordStockCruiseButton
+from opendbc.car.ford.carcontroller import FordStockCruiseButton, apply_creep_compensation
 from opendbc.car.gps import FORD_MACH_E_GPS_MESSAGES, get_car_gps_config, parse_ford_can_gps
 from opendbc.car.structs import CarParams
 from opendbc.car.fw_versions import build_fw_dict
@@ -36,6 +36,17 @@ def test_stock_cruise_button_ignores_press_with_cruise_master_off():
   button = FordStockCruiseButton()
 
   assert button.update(True, cruise_available=False, cruise_enabled=False) == (False, False)
+
+
+def test_mach_e_does_not_apply_engine_creep_compensation():
+  for accel in (-1.0, -0.1, 0.0, 0.1):
+    assert apply_creep_compensation(accel, 0.5, CAR.FORD_MUSTANG_MACH_E_MK1,
+                                     standstill=False, stopping=False) == accel
+
+  assert apply_creep_compensation(0.0, 0.0, CAR.FORD_MUSTANG_MACH_E_MK1,
+                                   standstill=True, stopping=True) == -0.6
+  assert apply_creep_compensation(0.0, 0.5, CAR.FORD_F_150_MK14,
+                                   standstill=False, stopping=False) == -0.6
 
 
 ECU_ADDRESSES = {

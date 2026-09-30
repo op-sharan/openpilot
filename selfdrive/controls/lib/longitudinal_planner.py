@@ -35,6 +35,7 @@ from openpilot.selfdrive.controls.lib.longitudinal_vehicle_tunes import (
   is_gm_silverado_early_follow_lead,
   is_toyota_rav4_tss2_post_departure_tune,
   get_toyota_rav4_tss2_early_lead_cap,
+  get_toyota_corolla_braking_lead_cap,
   is_toyota_rav4_tss2_radar_follow_lead,
   get_toyota_sienna_post_departure_restop_cap,
   get_untracked_slow_lead_decel_scale,
@@ -2580,6 +2581,16 @@ class LongitudinalPlanner:
     vision_low_speed_stop_active = False
     vision_brake_cap_active = False
     if lead_control_active:
+      if (not experimental_mode and
+          not bool(getattr(sm['starpilotPlan'], 'forcingStop', False)) and
+          not bool(getattr(sm['starpilotPlan'], 'redLight', False)) and
+          not bool(getattr(sm['starpilotPlan'], 'stopSignConfirmed', False))):
+        corolla_cap = get_toyota_corolla_braking_lead_cap(
+          self.CP, self.lead_one, v_ego,
+          desired_follow_distance(v_ego, self.lead_one.vLead, effective_t_follow), output_accel_min,
+        )
+        if corolla_cap is not None:
+          close_lead_caps.append(corolla_cap)
       for lead in (self.lead_one, self.lead_two):
         rav4_early_lead_cap = get_toyota_rav4_tss2_early_lead_cap(
           self.CP, lead, v_ego, output_accel_min,

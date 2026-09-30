@@ -376,6 +376,30 @@ def test_hrv_far_follow_output_slew_damps_only_continuous_safe_follow():
   assert smoothed == pytest.approx(-0.5)
 
 
+def test_niro_ev_far_follow_slew_is_vehicle_specific_and_preserves_urgent_braking():
+  CP = HyundaiCarInterface.get_non_essential_params(HYUNDAI_CAR.KIA_NIRO_EV)
+  next_gen = HyundaiCarInterface.get_non_essential_params(HYUNDAI_CAR.KIA_NIRO_EV_2ND_GEN)
+  planner = LongitudinalPlanner(CP, init_v=16.0)
+  planner.lead_one = make_lead(status=True, d_rel=45.0, v_lead=15.0, model_prob=0.99, y_rel=0.0)
+  planner.lead_two = make_lead(status=False)
+
+  assert get_far_follow_output_slew_rates(CP) == pytest.approx((2.5, 1.75))
+  assert get_far_follow_output_slew_rates(next_gen) == (0.0, 0.0)
+  first = planner.get_vehicle_far_follow_slew_target(16.0, 0.0, -0.4, False, False)
+  release = planner.get_vehicle_far_follow_slew_target(16.0, first, 0.3, False, False)
+  assert first == pytest.approx(-0.4)
+  assert release == pytest.approx(first + 1.75 * planner.dt)
+
+  planner.lead_one.dRel = 18.0
+  assert planner.get_vehicle_far_follow_slew_target(16.0, release, -1.5, False, False) == pytest.approx(-1.5)
+  assert not planner.far_follow_output_slew_active
+
+  planner.lead_one.dRel = 45.0
+  planner.lead_one.vLead = 10.0
+  assert planner.get_vehicle_far_follow_slew_target(16.0, release, -1.5, False, False) == pytest.approx(-1.5)
+  assert not planner.far_follow_output_slew_active
+
+
 def test_crv_far_follow_output_slew_damps_nonurgent_lead_transition():
   v_ego = 24.0
   CP = CarInterface.get_non_essential_params(CAR.HONDA_CRV_5G)
