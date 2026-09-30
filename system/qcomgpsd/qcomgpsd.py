@@ -23,6 +23,7 @@ from openpilot.common.time_helpers import system_time_valid
 from openpilot.system.hardware.tici.pins import GPIO
 from openpilot.common.swaglog import cloudlog
 from openpilot.system.qcomgpsd.modemdiag import ModemDiag, DIAG_LOG_F, setup_logs, send_recv
+from openpilot.starpilot.system.bluetooth.phone_gps_fix import phone_fix_fields, read_phone_fix
 from openpilot.system.qcomgpsd.structs import (dict_unpacker, position_report, relist,
                                               gps_measurement_report, gps_measurement_report_sv,
                                               glonass_measurement_report, glonass_measurement_report_sv,
@@ -234,6 +235,24 @@ def teardown_quectel(diag):
   try_setup_logs(diag, [])
 
 
+def send_phone_fallback(pm) -> bool:
+  # The eGPU's USB 3 link desenses the modem's receiver, which can then go minutes without a fix.
+  try:
+    fix = read_phone_fix()
+    if fix is None:
+      return False
+    msg = messaging.new_message('gpsLocation', valid=True)
+    gps = msg.gpsLocation
+    for name, value in phone_fix_fields(fix).items():
+      setattr(gps, name, value)
+    gps.source = log.GpsLocationData.SensorSource.android
+    pm.send('gpsLocation', msg)
+    return True
+  except Exception:
+    cloudlog.exception("phone GPS fallback failed")
+    return False
+
+
 def wait_for_modem():
   cloudlog.warning("waiting for modem to come up")
   while True:
@@ -364,6 +383,7 @@ def main() -> NoReturn:
     elif log_type == LOG_GNSS_POSITION_REPORT:
       report = unpack_position(log_payload)
       if report["u_PosSource"] != 2:
+        send_phone_fallback(pm)
         continue
       vNED = [report["q_FltVelEnuMps[1]"], report["q_FltVelEnuMps[0]"], -report["q_FltVelEnuMps[2]"]]
       vNEDsigma = [report["q_FltVelSigmaMps[1]"], report["q_FltVelSigmaMps[0]"], -report["q_FltVelSigmaMps[2]"]]
@@ -391,6 +411,8 @@ def main() -> NoReturn:
       if gps.hasFix:
         want_assistance = False
         stop_download_event.set()
+      elif send_phone_fallback(pm):
+        continue
       pm.send('gpsLocation', msg)
 
     elif log_type == LOG_GNSS_OEMDRE_SVPOLY_REPORT:

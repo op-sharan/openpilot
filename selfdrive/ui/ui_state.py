@@ -65,6 +65,8 @@ class UIState:
         "selfdriveState",
         "longitudinalPlan",
         "gpsLocationExternal",
+        "gpsLocation",
+        "qcomGnss",
         "mapdOut",
         "carOutput",
         "carControl",
@@ -78,7 +80,9 @@ class UIState:
         "liveDelay",
         "liveTorqueParameters",
       ],
-      drain_services=["carState"],
+      # qcomGnss sends several report types in bursts; conflating keeps only the last, which drops the
+      # measurementReport gnss_health.py needs.
+      drain_services=["carState", "qcomGnss"],
     )
 
     self.prime_state = PrimeState()

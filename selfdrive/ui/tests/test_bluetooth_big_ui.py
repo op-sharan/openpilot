@@ -7,8 +7,9 @@ from openpilot.starpilot.system.bluetooth.protocol import BluetoothDevice, Bluet
 import openpilot.selfdrive.ui.layouts.settings.settings as settings_module
 from openpilot.selfdrive.ui.layouts.settings.settings import PanelType, SettingsLayout
 from openpilot.system.ui.widgets import DialogResult
+import openpilot.system.ui.widgets.bluetooth as bluetooth_widgets
 from openpilot.system.ui.widgets.bluetooth import (BluetoothManagerUI, PANEL_BACKGROUND, ROW_BORDER,
-                                                   device_action_allowed, device_status_text)
+                                                   device_action_allowed, device_status_connected, device_status_text)
 
 
 ADDRESS = "00:11:22:33:44:55"
@@ -137,6 +138,30 @@ def test_primary_device_action_is_pair_then_connect_then_manage():
   manager.status = BluetoothStatus(offroad=True, devices=(connected,))
   ui._select_device(ADDRESS)
   assert managed == [ADDRESS]
+
+
+def test_paired_phone_is_shown_as_a_gps_source():
+  phone = make_device(paired=True, phone=True)
+  assert device_status_text(phone, "", "") == "Phone - GPS source"
+  assert device_status_text(make_device(paired=True, phone=True, connected=True, gps="streaming"), "", "") == "Phone - GPS source - streaming"
+  assert device_status_text(make_device(paired=True, phone=True, gps="no_fix"), "", "") == "Phone - GPS source - connected, no GPS lock on phone"
+  assert device_status_text(make_device(phone=True), "", "") == "Tap to pair / phone"
+
+  assert device_status_connected(make_device(paired=True, phone=True, gps="streaming"))
+  assert not device_status_connected(make_device(paired=True, phone=True, connected=True, gps="no_fix"))
+  assert not device_status_connected(make_device(paired=True, phone=True, connected=True))
+
+
+def test_tapping_a_paired_phone_explains_instead_of_connecting(monkeypatch):
+  manager = FakeBluetoothManager(BluetoothStatus(offroad=True, devices=(make_device(paired=True, phone=True),)))
+  ui = make_ui(manager)
+  pushed = []
+  monkeypatch.setattr(bluetooth_widgets.gui_app, "push_widget", pushed.append)
+
+  ui._select_device(ADDRESS)
+
+  assert manager.calls == []
+  assert len(pushed) == 1
 
 
 def test_scan_is_only_requested_when_the_existing_daemon_policy_allows_it():
