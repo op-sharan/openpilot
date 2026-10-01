@@ -36,7 +36,9 @@ from openpilot.selfdrive.controls.lib.longitudinal_vehicle_tunes import (
   is_toyota_rav4_tss2_post_departure_tune,
   get_toyota_rav4_tss2_early_lead_cap,
   get_toyota_corolla_braking_lead_cap,
+  is_toyota_corolla_early_radar_follow_lead,
   use_stopped_lead_position,
+  use_model_lead_filter_sync,
   is_toyota_rav4_tss2_radar_follow_lead,
   get_toyota_sienna_post_departure_restop_cap,
   get_untracked_slow_lead_decel_scale,
@@ -580,7 +582,8 @@ def get_accel_from_plan(speeds, accels, action_t=DT_MDL, vEgoStopping=0.05):
 class LongitudinalPlanner:
   def __init__(self, CP, init_v=0.0, init_a=0.0, dt=DT_MDL):
     self.CP = CP
-    self.mpc = LongitudinalMpc(dt=dt, hold_stopped_lead_position=use_stopped_lead_position(CP))
+    self.mpc = LongitudinalMpc(dt=dt, hold_stopped_lead_position=use_stopped_lead_position(CP),
+                              sync_model_lead_filters=use_model_lead_filter_sync(CP))
     self.fcw = False
     self.dt = dt
     self.model_allow_throttle = True
@@ -2146,7 +2149,9 @@ class LongitudinalPlanner:
     # safety path so ACC/chill does not ignore a visible lead during that debounce.
     lead_control_active = (
       tracking_lead or raw_close_lead_control or early_truck_follow or rav4_radar_follow or
-      lightning_stopped_radar_follow
+      lightning_stopped_radar_follow or
+      any(is_toyota_corolla_early_radar_follow_lead(self.CP, lead, scene_v_ego)
+          for lead in (self.lead_one, self.lead_two))
     )
     lead_one_active = bool(self.lead_one.status and lead_control_active)
     effective_t_follow = self.get_dynamic_t_follow(sm['starpilotPlan'].tFollow, self.lead_one if lead_one_active else None, v_ego)

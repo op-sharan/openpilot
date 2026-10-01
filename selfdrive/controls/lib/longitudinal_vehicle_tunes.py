@@ -139,6 +139,7 @@ TOYOTA_CAMRY_TSS2_FORCE_STOP_DISTANCE_BIAS_M = 6.0
 DEFAULT_FORCE_STOP_HANDOFF_M = 6.0
 HYUNDAI_SANTA_FE_2022_FORCE_STOP_REANCHOR_SPEED_TOLERANCE = 0.25
 HYUNDAI_SANTA_FE_2022_FORCE_STOP_LOW_SPEED_HOLD = 2.5
+FORD_MACH_E_FORCE_STOP_LOW_SPEED_HOLD = 1.0
 KIA_CARNIVAL_2025_STOP_SIGN_LOW_SPEED_HOLD = 0.75
 
 
@@ -176,6 +177,27 @@ def use_stopped_lead_position(CP):
     getattr(CP, "brand", "") == "toyota" and
     str(getattr(CP, "carFingerprint", "")) == "TOYOTA_COROLLA_TSS2"
   )
+
+
+def use_model_lead_filter_sync(CP):
+  return (
+    getattr(CP, "brand", "") == "toyota" and
+    str(getattr(CP, "carFingerprint", "")) == "TOYOTA_COROLLA_TSS2"
+  )
+
+
+def is_toyota_corolla_early_radar_follow_lead(CP, lead, v_ego):
+  if (
+    getattr(CP, "brand", "") != "toyota" or
+    str(getattr(CP, "carFingerprint", "")) != "TOYOTA_COROLLA_TSS2" or
+    lead is None or not bool(getattr(lead, "status", False)) or
+    not bool(getattr(lead, "radar", False)) or
+    float(getattr(lead, "modelProb", 0.0)) < 0.5 or float(v_ego) < 15.0
+  ):
+    return False
+
+  closing_speed = float(v_ego) - max(float(lead.vLead), 0.0)
+  return closing_speed >= 7.0 and 30.0 <= float(lead.dRel) <= min(120.0, 4.0 * float(v_ego))
 
 
 def get_toyota_corolla_braking_lead_cap(CP, lead, v_ego, desired_gap, accel_min):
@@ -788,9 +810,11 @@ def get_force_stop_reanchor_speed_tolerance(car_params):
 
 
 def get_force_stop_low_speed_hold(car_params):
-  """Keep a committed Santa Fe stop from releasing while it is still rolling."""
-  if str(getattr(car_params, "carFingerprint", car_params)) == "HYUNDAI_SANTA_FE_2022":
+  fingerprint = str(getattr(car_params, "carFingerprint", car_params))
+  if fingerprint == "HYUNDAI_SANTA_FE_2022":
     return HYUNDAI_SANTA_FE_2022_FORCE_STOP_LOW_SPEED_HOLD
+  if fingerprint == "FORD_MUSTANG_MACH_E_MK1":
+    return FORD_MACH_E_FORCE_STOP_LOW_SPEED_HOLD
   return None
 
 

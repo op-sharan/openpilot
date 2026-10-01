@@ -38,8 +38,8 @@ MACH_E_TURN_IN_LOOKAHEAD_EXTRA = 0.80
 MACH_E_LOW_SPEED_TURN_IN_LOOKAHEAD_EXTRA = 1.60
 MACH_E_LOW_SPEED_TURN_IN_START_SPEED = 2.0
 MACH_E_LOW_SPEED_TURN_IN_FULL_SPEED = 3.0
-MACH_E_LOW_SPEED_TURN_IN_MAX_SPEED = 9.0
-MACH_E_LOW_SPEED_TURN_IN_FADE_SPEED = 12.0
+MACH_E_LOW_SPEED_TURN_IN_MAX_SPEED = 11.0
+MACH_E_LOW_SPEED_TURN_IN_FADE_SPEED = 14.0
 MACH_E_TURN_IN_MIN_CURVATURE = 0.002
 MACH_E_TURN_IN_FULL_CURVATURE = 0.008
 MACH_E_TURN_IN_LAG_CURVATURE = 0.006
@@ -78,7 +78,7 @@ MACH_E_SHARP_DIRECTION_CHANGE_MIN_ACCEL = 1.8
 MACH_E_SHARP_DIRECTION_CHANGE_FULL_ACCEL = 2.2
 MACH_E_SHARP_DIRECTION_CHANGE_MIN_LAG_CURVATURE = -0.0005
 MACH_E_SHARP_DIRECTION_CHANGE_FULL_LAG_CURVATURE = 0.0008
-MACH_E_UNDERSTEER_ERROR_MAX = 0.006
+MACH_E_CURVATURE_ERROR_MAX = 0.006
 MACH_E_UNDERSTEER_ERROR_MIN_DEFICIT = 0.002
 MACH_E_UNDERSTEER_ERROR_FULL_DEFICIT = 0.004
 MACH_E_PATH_ANGLE_MAX = 0.16
@@ -240,16 +240,28 @@ class FordLateralController:
                 np.sign(desired) * (current - desired) <= CarControllerParams.CURVATURE_ERROR)
 
   def _curvature_error_limit(self, requested: float, desired: float, current: float, v_ego: float,
-                             steering_pressed: bool, lane_change: bool) -> float:
+                             steering_pressed: bool, lane_change: bool, predicted: float = 0.0) -> float:
     base = CarControllerParams.CURVATURE_ERROR
     if (self.CP.carFingerprint != CAR.FORD_MUSTANG_MACH_E_MK1 or not self.CP.flags & FordFlags.CANFD or
-        steering_pressed or lane_change or requested * desired <= 0.0 or abs(desired) < 0.003):
+        steering_pressed or lane_change):
       return base
-    deficit = np.sign(desired) * (requested - current)
     speed_weight = float(np.interp(v_ego, [9.0, 10.0, 14.0, 16.0], [0.0, 1.0, 1.0, 0.0]))
-    deficit_weight = float(np.interp(
-      deficit, [MACH_E_UNDERSTEER_ERROR_MIN_DEFICIT, MACH_E_UNDERSTEER_ERROR_FULL_DEFICIT], [0.0, 1.0]))
-    return base + (MACH_E_UNDERSTEER_ERROR_MAX - base) * speed_weight * deficit_weight
+    deficit_weight = 0.0
+    planned_curve = abs(desired) >= 0.003 or (abs(requested) >= 0.003 and requested * predicted > 0.0)
+    if requested * desired > 0.0 and planned_curve:
+      deficit = np.sign(desired) * (requested - current)
+      deficit_weight = float(np.interp(
+        deficit, [MACH_E_UNDERSTEER_ERROR_MIN_DEFICIT, MACH_E_UNDERSTEER_ERROR_FULL_DEFICIT], [0.0, 1.0]))
+    if current * desired < 0.0:
+      predicted = self._predicted_curvature(v_ego, self._curvature_lookahead() + MACH_E_TURN_IN_LOOKAHEAD_EXTRA)
+    reversal_weight = 0.0
+    if current * predicted < 0.0 and current * (requested - current) < 0.0:
+      reversal_weight = float(np.interp(
+        abs(predicted),
+        [MACH_E_DIRECTION_CHANGE_MIN_PREVIEW_CURVATURE, MACH_E_DIRECTION_CHANGE_FULL_PREVIEW_CURVATURE],
+        [0.0, 1.0],
+      ))
+    return base + (MACH_E_CURVATURE_ERROR_MAX - base) * speed_weight * max(deficit_weight, reversal_weight)
 
   def _path_angle_assist(self, requested: float, desired: float, applied: float, current: float, v_ego: float,
                          steering_pressed: bool, lane_change: bool) -> float:
@@ -583,7 +595,7 @@ class FordLateralController:
 
     if v_ego > 9.0:
       error_limit = self._curvature_error_limit(
-        requested, desired, current, v_ego, driver_override, self._lane_change()[0])
+        requested, desired, current, v_ego, driver_override, self._lane_change()[0], command_predicted)
       requested = float(np.clip(requested, current - error_limit, current + error_limit))
     applied = float(apply_std_steer_angle_limits(
       requested, self.curvature_last, v_ego, CS.out.steeringAngleDeg, True, FORD_CURVATURE_LIMITS))

@@ -428,10 +428,11 @@ def gen_long_ocp():
 
 
 class LongitudinalMpc:
-  def __init__(self, mode='acc', dt=DT_MDL, *, hold_stopped_lead_position=False):
+  def __init__(self, mode='acc', dt=DT_MDL, *, hold_stopped_lead_position=False, sync_model_lead_filters=False):
     self.mode = mode
     self.dt = dt
     self.hold_stopped_lead_position = hold_stopped_lead_position
+    self.sync_model_lead_filters = sync_model_lead_filters
     self.solver = AcadosOcpSolverCython(MODEL_NAME, ACADOS_SOLVER_TYPE, N)
     self.source = SOURCES[2]
     # Initialize smoothing filters with default time constants
@@ -637,6 +638,18 @@ class LongitudinalMpc:
     if lead_active:
       model_lead_xv = build_model_lead_trajectory(model_lead, lead, v_ego)
       if model_lead_xv is not None:
+        if self.sync_model_lead_filters:
+          a_lead = soften_far_radar_lead_accel(
+            lead.dRel, lead.vLead, lead.aLeadK, v_ego,
+            get_T_FOLLOW() if t_follow is None else t_follow,
+            radar=bool(getattr(lead, "radar", False)),
+          )
+          self.lead_a_filter.update(float(np.clip(a_lead, -10., 5.)))
+          self.lead_v_filter.update(float(np.clip(lead.vLead, 0.0, 1e8)))
+          for lead_filter in (self.duplicate_lead_x_filters[lead_index],
+                              self.duplicate_lead_a_filters[lead_index],
+                              self.duplicate_lead_v_filters[lead_index]):
+            lead_filter.initialized = False
         return model_lead_xv
 
     if lead_active:
