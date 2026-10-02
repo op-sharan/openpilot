@@ -204,8 +204,7 @@ class StarPilotLateralLayout(_SettingsPage):
       ),
       SettingRow(
         "LaneChangeCloseGap", "toggle", tr_noop("Close Gap On Lane Change"),
-        subtitle=tr_noop("Allows for a temporary shorter follow distance behind lead so that openpilot merges smoothly " +
-                         "out of current lane, it will allow car to accelerate as it changes lanes."),
+        subtitle=tr_noop("Temporarily shorten the following gap and allow acceleration while changing lanes."),
         get_state=lambda: p.get_bool("LaneChangeCloseGap"),
         set_state=lambda s: p.put_bool("LaneChangeCloseGap", s),
         visible=lc_on,
