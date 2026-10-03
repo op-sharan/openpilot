@@ -1,4 +1,6 @@
 import pytest
+import math
+from collections import deque
 from parameterized import parameterized
 from types import SimpleNamespace
 
@@ -1806,7 +1808,7 @@ class TestLatControl:
     assert high_speed_unwind > high_speed_wind > 0.1
     assert abs(high_speed_direction_change - 0.3) > abs(high_speed_center - 0.2)
 
-  def test_genesis_gv70_output_stabilizer_update_path(self, monkeypatch):
+  def test_genesis_gv70_stabilizer_filters_feedforward_not_feedback(self, monkeypatch):
     calls = []
 
     def stabilized_output(output_torque, prev_output_torque, desired_lateral_accel,
@@ -1818,13 +1820,27 @@ class TestLatControl:
     monkeypatch.setattr(latcontrol_torque, "get_genesis_gv70_stabilized_output", stabilized_output)
     controller, VM, CS, params, starpilot_toggles = self._build_torque_controller(HYUNDAI.GENESIS_GV70_ELECTRIFIED_1ST_GEN)
     CS.vEgo = 25.0
+    controller.update(
+      True, CS, VM, params, False, 0.0002, False, 0.2, None, None, starpilot_toggles,
+    )
     output, _, lac_log = controller.update(
       True, CS, VM, params, False, 0.0002, False, 0.2, None, None, starpilot_toggles,
     )
 
     assert calls
     assert lac_log.active
-    assert output == pytest.approx(-0.123)
+    assert lac_log.f == pytest.approx(0.123)
+    expected_accel = lac_log.p + lac_log.i + lac_log.d + lac_log.f
+    expected_torque = controller.torque_from_lateral_accel(expected_accel, controller.torque_params)
+    assert output == pytest.approx(-expected_torque)
+
+    previous_p = lac_log.p
+    CS.steeringAngleDeg += 0.5
+    _, _, next_log = controller.update(
+      True, CS, VM, params, False, 0.0002, False, 0.2, None, None, starpilot_toggles,
+    )
+    assert next_log.f == pytest.approx(0.123)
+    assert next_log.p != pytest.approx(previous_p)
 
     call_count = len(calls)
     CS.steeringPressed = True
@@ -1832,6 +1848,61 @@ class TestLatControl:
       True, CS, VM, params, False, 0.0002, False, 0.2, None, None, starpilot_toggles,
     )
     assert len(calls) == call_count
+    assert controller.pid.d == 0.0
+
+    CS.steeringPressed = False
+    controller.update(
+      True, CS, VM, params, False, 0.0002, False, 0.2, None, None, starpilot_toggles,
+    )
+    assert len(calls) == call_count
+    controller.update(False, CS, VM, params, False, 0.0, False, 0.2, None, None, starpilot_toggles)
+    assert controller.gv70_previous_feedforward is None
+    controller.update(
+      True, CS, VM, params, False, -0.0002, False, 0.2, None, None, starpilot_toggles,
+    )
+    assert len(calls) == call_count
+
+  @pytest.mark.parametrize("car_name", [HYUNDAI.GENESIS_G70_2020, HYUNDAI.GENESIS_GV70_1ST_GEN, HYUNDAI.KIA_EV6,
+                                        HYUNDAI.HYUNDAI_IONIQ_6])
+  def test_genesis_gv70_measurement_damping_does_not_change_other_cars(self, car_name):
+    controller, _, _, _, _ = self._build_torque_controller(car_name)
+    assert not controller.is_genesis_gv70
+    assert max(controller.pid._k_d[1]) == 0.0
+
+  def test_genesis_gv70_measurement_damping_is_bounded_and_has_no_steady_bias(self):
+    controller, VM, CS, params, toggles = self._build_torque_controller(HYUNDAI.GENESIS_GV70_ELECTRIFIED_1ST_GEN)
+    CS.vEgo = 30.0
+    CS.steeringAngleDeg = 0.0
+    controller.update(True, CS, VM, params, False, 0.0, False, 0.2, None, None, toggles)
+    CS.steeringAngleDeg = -5.0
+    output, _, moving_log = controller.update(True, CS, VM, params, False, 0.0, False, 0.2, None, None, toggles)
+    assert -0.300001 <= moving_log.d < 0.0
+    assert abs(output) <= controller.steer_max
+    for _ in range(150):
+      _, _, steady_log = controller.update(True, CS, VM, params, False, 0.0, False, 0.2, None, None, toggles)
+    assert steady_log.d == pytest.approx(0.0, abs=1e-6)
+
+    CS.vEgo = 3.0
+    CS.steeringAngleDeg = 5.0
+    _, _, low_speed_log = controller.update(True, CS, VM, params, False, 0.0, False, 0.2, None, None, toggles)
+    assert low_speed_log.d == 0.0
+
+  @pytest.mark.parametrize("direction", [-1.0, 1.0])
+  def test_genesis_gv70_overshoot_correction_bypasses_old_turn_output(self, monkeypatch, direction):
+    controller, VM, CS, params, toggles = self._build_torque_controller(HYUNDAI.GENESIS_GV70_ELECTRIFIED_1ST_GEN)
+    CS.vEgo = 22.0
+    CS.steeringAngleDeg = math.degrees(VM.get_steer_from_curvature(-direction * 2.4 / CS.vEgo ** 2, CS.vEgo, 0.0))
+    controller.curvature_request_buffer = deque([direction * 0.8 / CS.vEgo ** 2] * controller.request_buffer_len,
+                                               maxlen=controller.request_buffer_len)
+    controller.prev_output_torque = direction * 0.8
+    controller.gv70_previous_feedforward = direction * 0.8
+    monkeypatch.setattr(latcontrol_torque, "get_genesis_gv70_stabilized_output", lambda *_args: direction * 0.2)
+    output, _, lac_log = controller.update(
+      True, CS, VM, params, False, direction * 0.8 / CS.vEgo ** 2, False, 0.2, None, None, toggles,
+    )
+    assert lac_log.p * direction < 0.0
+    assert output * direction > 0.0
+    assert abs(output) <= controller.steer_max
 
   def test_genesis_g70_low_speed_output_guard_update_path(self):
     controller, VM, CS, params, starpilot_toggles = self._build_torque_controller(HYUNDAI.GENESIS_G70_2020)
