@@ -50,22 +50,49 @@ def test_steady_offset_passes_unchanged():
   np.testing.assert_allclose(out[-100:], bias, rtol=1e-6)
 
 
-def test_curves_pass_through():
-  raw = _weave(bias=1.0 / _V_HWY ** 2)
+def test_steady_curve_wobble_is_smoothed():
+  raw = _weave(seconds=40.0, bias=1.0 / _V_HWY ** 2)
   out = _run(HighwayCorrectionGain(), raw, gain=0.5)
-  np.testing.assert_allclose(out, raw, rtol=0, atol=1e-12)
+  tail = slice(len(raw) // 2, None)
+  amp_in, _ = _fit_sine(raw[tail], 0.6)
+  amp_out, _ = _fit_sine(out[tail], 0.6)
+  assert 0.45 < amp_out / amp_in < 0.62
+  assert abs(out[tail].mean() - raw[tail].mean()) * _V_HWY ** 2 < 0.01  # the curve itself is untouched
+
+
+def test_tight_curves_pass_through():
+  raw = _weave(seconds=40.0, bias=2.5 / _V_HWY ** 2)
+  out = _run(HighwayCorrectionGain(), raw, gain=0.5)
+  tail = slice(len(raw) // 2, None)
+  np.testing.assert_allclose(out[tail], raw[tail], rtol=0, atol=1e-12)
 
 
 def test_curve_entry_is_not_delayed_much():
-  t = np.arange(0.0, 12.0, DT_CTRL)
-  lat = np.interp(t, [0, 5, 7, 12], [0, 0, 1.2, 1.2])
+  # 5 s straight, then ramp to 1.2 m/s^2 over 2 s and hold
+  t = np.arange(0.0, 20.0, DT_CTRL)
+  lat = np.interp(t, [0, 5, 7, 20], [0, 0, 1.2, 1.2])
   raw = lat / _V_HWY ** 2
   out = _run(HighwayCorrectionGain(), raw, gain=0.5)
   shortfall = (raw - out) * _V_HWY ** 2
   # the gate only fully releases at LAT_ACCEL_OFF, so curve entry is briefly softened
   assert np.max(np.abs(shortfall)) < 0.15
   assert np.argmax(out * _V_HWY ** 2 >= 0.6) == np.argmax(lat >= 0.6)
-  np.testing.assert_allclose(out[t > 8.0], raw[t > 8.0], rtol=0, atol=1e-12)
+  assert np.max(np.abs(shortfall[t > 12.0])) < 0.01
+
+
+def test_curve_exit_is_not_held():
+  # 20 s steady curve (smoothing active), then unwind to straight over 2 s
+  t = np.arange(0.0, 30.0, DT_CTRL)
+  lat = np.interp(t, [0, 2, 20, 22, 30], [1.2, 1.2, 1.2, 0, 0])
+  raw = lat / _V_HWY ** 2
+  hcg = HighwayCorrectionGain()
+  hcg.reset(raw[0])
+  out = _run(hcg, raw, gain=0.5)
+  excess = (out - raw)[t > 19.0] * _V_HWY ** 2
+  assert np.max(np.abs(excess)) < 0.15
+  i_raw = np.argmax(lat[t > 19.0] <= 0.6)
+  i_out = np.argmax(out[t > 19.0] * _V_HWY ** 2 <= 0.6)
+  assert (i_out - i_raw) * DT_CTRL < 0.15
 
 
 def test_below_speed_gate_passes_through():
@@ -109,5 +136,5 @@ def test_inactive_resets_and_passes_through():
 def test_gain_is_clamped():
   raw = _weave()
   low = _run(HighwayCorrectionGain(), raw, gain=0.0)
-  floor = _run(HighwayCorrectionGain(), raw, gain=0.3)
+  floor = _run(HighwayCorrectionGain(), raw, gain=0.1)
   np.testing.assert_allclose(low, floor, rtol=0, atol=1e-15)

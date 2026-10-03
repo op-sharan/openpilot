@@ -79,10 +79,10 @@
       {
         "key": "HighwayCorrectionGain",
         "label": "Highway Smoothing",
-        "description": "Straight roads only (35+ mph). 1.00 = off. Lower follows the model's quick back-and-forth corrections less, to calm weave.",
+        "description": "Straights and steady curves (35+ mph). 1.00 = off. Lower follows the model's quick back-and-forth corrections less, to calm weave.",
         "data_type": "float",
         "ui_type": "numeric",
-        "min": 0.3,
+        "min": 0.1,
         "max": 1.0,
         "step": 0.05,
         "precision": 2,
