@@ -24,6 +24,7 @@ dependencies = [
   "scons",
   "pycapnp==2.1.0",  # 2.2 introduces a memory leak due to cyclic references
   "numpy >=2.0",
+  "pillow",  # Galaxy camera snapshots and Sentry image evidence
 
   # vendored native dependencies
   "comma-deps-capnproto",
@@ -32,7 +33,6 @@ dependencies = [
   "comma-deps-zstd",
   "comma-deps-zeromq",
   "comma-deps-json11",
-  "comma-deps-git-lfs",
   "comma-deps-gcc-arm-none-eabi",
 
   # athena
@@ -72,7 +72,7 @@ tools = [
   #"metadrive-simulator @ git+https://github.com/commaai/metadrive.git@minimal ; (platform_machine != 'aarch64')",
 ]
 
-submodules = [
+vendored = [
   "msgq",
   "opendbc",
   "pandacan",
@@ -86,7 +86,7 @@ Homepage = "https://github.com/commaai/openpilot"
 
 [dependency-groups]
 standalone = [
-  "openpilot[submodules]",
+  "openpilot[vendored]",
 ]
 
 [build-system]
@@ -151,7 +151,7 @@ unresolved-attribute = "ignore"  # many from capnp and Cython modules
 python-preference = "only-managed"
 default-groups = ["standalone"]
 override-dependencies = [
-  "opendbc",  # panda pins opendbc from git for standalone use; always use our submodule
+  "opendbc",  # panda pins opendbc from git for standalone use; always use our tracked source
 ]
 
 [tool.uv.sources]

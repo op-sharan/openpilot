@@ -12,8 +12,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v7
-      with:
-        submodules: false
 
     # Label PRs
     - uses: actions/labeler@v6

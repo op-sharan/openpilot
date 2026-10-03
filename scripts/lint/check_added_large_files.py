@@ -5,25 +5,34 @@ import os
 import subprocess
 
 
-def lfs_files(filenames: list[str]) -> set[str]:
+def binary_files(filenames: list[str]) -> set[str]:
   if not filenames:
     return set()
 
   result = subprocess.run(
-    ("git", "check-attr", "filter", "-z", "--stdin"),
+    ("git", "check-attr", "text", "-z", "--stdin"),
     input="\0".join(filenames),
     check=True,
     capture_output=True,
     text=True,
   )
   fields = result.stdout.rstrip("\0").split("\0") if result.stdout else []
-  return {fields[i] for i in range(0, len(fields), 3) if fields[i + 2] == "lfs"}
+  return {fields[i] for i in range(0, len(fields), 3) if fields[i + 2] == "unset"}
 
 
 def check_added_large_files(filenames: list[str], max_kb: int) -> int:
   failed = False
-  ignored = lfs_files(filenames)
+  ignored = binary_files(filenames)
   for filename in filenames:
+    with open(filename, 'rb') as file:
+      if file.read(43).startswith(b'version https://git-lfs.github.com/spec/v1'):
+        print(f'{filename}: placeholder pointer payload.')
+        failed = True
+        continue
+    if os.stat(filename).st_size > 95 * 1024 * 1024:
+      print(f'{filename}: ordinary Git blob exceeds 95 MiB.')
+      failed = True
+      continue
     if filename in ignored:
       continue
 

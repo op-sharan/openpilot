@@ -1,5 +1,6 @@
 #include <array>
 #include <cassert>
+#include <cstdlib>
 #include <fstream>
 #include <map>
 
@@ -77,7 +78,10 @@ void branchMigration() {
 
 void run(const char* cmd) {
   int err = std::system(cmd);
-  assert(err == 0);
+  if (err != 0) {
+    LOGE("Installer command failed (%d): %s", err, cmd);
+    std::exit(EXIT_FAILURE);
+  }
 }
 
 void finishInstall() {
@@ -135,7 +139,7 @@ int doInstall() {
 
 int freshClone() {
   LOGD("Doing fresh clone");
-  std::string cmd = util::string_format("git clone --progress %s -b %s --depth=1 --recurse-submodules %s 2>&1",
+  std::string cmd = util::string_format("git -c submodule.recurse=false clone --progress %s -b %s --depth=1 --no-recurse-submodules %s 2>&1",
                                         GIT_URL.c_str(), migrated_branch.c_str(), TMP_INSTALL_PATH);
   return executeGitCommand(cmd);
 }
@@ -149,7 +153,8 @@ int cachedFetch(const std::string &cache) {
 
   renderProgress(10);
 
-  return executeGitCommand(util::string_format("cd %s && git fetch --progress origin %s 2>&1", TMP_INSTALL_PATH, migrated_branch.c_str()));
+  return executeGitCommand(util::string_format("cd %s && git -c submodule.recurse=false fetch --no-recurse-submodules --progress origin %s 2>&1",
+                                               TMP_INSTALL_PATH, migrated_branch.c_str()));
 }
 
 int executeGitCommand(const std::string &cmd) {
@@ -192,9 +197,12 @@ void cloneFinished(int exitCode) {
   // ensure correct branch is checked out
   int err = chdir(TMP_INSTALL_PATH);
   assert(err == 0);
-  run(("git checkout " + migrated_branch).c_str());
-  run(("git reset --hard origin/" + migrated_branch).c_str());
-  run("git submodule update --init");
+  // Cached installations can validate using their existing checker before checkout.
+  run(("if [ -f tools/vendor/check.py ]; then python3 tools/vendor/check.py --revision origin/" + migrated_branch + "; fi").c_str());
+  run(("git -c submodule.recurse=false checkout --no-recurse-submodules " + migrated_branch).c_str());
+  run(("git -c submodule.recurse=false reset --hard --no-recurse-submodules origin/" + migrated_branch).c_str());
+  // AGNOS supplies Python; validate the complete source before replacing an install.
+  run("python3 tools/vendor/check.py");
 
   // move into place
   run(("rm -f " + VALID_CACHE_PATH).c_str());

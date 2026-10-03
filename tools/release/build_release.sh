@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 set -e
 set -x
+set -o pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null && pwd)"
 cd "$DIR"
 
 BUILD_DIR=/data/openpilot
 SOURCE_DIR="$(git rev-parse --show-toplevel)"
+python3 "$SOURCE_DIR/tools/vendor/check.py"
 
 export PYTHONPATH="$BUILD_DIR:$BUILD_DIR/msgq_repo:$BUILD_DIR/opendbc_repo:$BUILD_DIR/rednose_repo:$BUILD_DIR/teleoprtc_repo:$BUILD_DIR/tinygrad_repo"
 
@@ -39,7 +41,6 @@ cd "$SOURCE_DIR"
 
 # in the directory
 cd "$BUILD_DIR"
-source "$SOURCE_DIR/tools/release/setup_lfs.sh"
 
 # use the full CPU available for speeding up the build.
 # openpilot resets the CPU frequencies when test_onroad.py runs below.
@@ -65,14 +66,6 @@ if [ -n "$INCLUDE_BIG_MODEL" ]; then
   test -f openpilot/selfdrive/modeld/models/big_driving_warp_1928x1208_tinygrad.pkl
 fi
 
-# Ensure no submodules in release
-if test "$(git submodule--helper list | wc -l)" -gt "0"; then
-  echo "submodules found:"
-  git submodule--helper list
-  exit 1
-fi
-git submodule status
-
 # Cleanup
 find . -name '*.a' -delete
 find . -name '*.o' -delete
@@ -89,6 +82,7 @@ VERSION=$(cat openpilot/common/version.h | awk -F[\"-]  '{print $2}')
 # Add built files to git
 # writing larger objects is faster than compressing them on-device
 git -c core.compression=0 add -f .
+python3 tools/vendor/check.py
 git -c core.compression=0 -c gc.auto=0 commit -m "openpilot v$VERSION"
 source "$SOURCE_DIR/tools/release/check_file_sizes.sh"
 
@@ -103,7 +97,6 @@ for branch in ${RELEASE_BRANCH//,/ }; do
   REFS+=("$BUILD_BRANCH:$branch")
 done
 # uploading the larger pack is faster than spending CPU to optimize it
-# The big model is already published to LFS by the source branch.
-GIT_LFS_SKIP_PUSH=1 git -c pack.window=0 -c pack.depth=0 -c pack.compression=0 push -f origin "${REFS[@]}"
+git -c pack.window=0 -c pack.depth=0 -c pack.compression=0 push -f origin "${REFS[@]}"
 
 echo "[-] done T=$SECONDS"

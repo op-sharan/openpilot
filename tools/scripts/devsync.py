@@ -9,6 +9,7 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
 from openpilot.common.basedir import BASEDIR
+from openpilot.common.vendor_manifest import validate_worktree
 
 
 def build_rsync_cmd(args) -> list[str]:
@@ -32,8 +33,9 @@ def build_rsync_cmd(args) -> list[str]:
 
 
 def git_tracked_files() -> bytes:
+  validate_worktree(BASEDIR)
   return subprocess.check_output(
-    ["git", "-C", BASEDIR, "ls-files", "--recurse-submodules", "-z"]
+    ["git", "-C", BASEDIR, "-c", "submodule.recurse=false", "ls-files", "-z"]
   )
 
 
@@ -65,7 +67,11 @@ def main():
   print(f"[devsync] target   comma@{args.ip}:{args.remote}")
 
   def run_sync():
-    file_list = git_tracked_files()
+    try:
+      file_list = git_tracked_files()
+    except (ValueError, OSError, subprocess.CalledProcessError) as e:
+      print(f"[devsync] source validation failed: {e}")
+      return
     cmd = build_rsync_cmd(args)
     t0 = time.monotonic()
     r = subprocess.run(cmd, input=file_list, capture_output=True)

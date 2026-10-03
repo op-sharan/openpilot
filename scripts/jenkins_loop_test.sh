@@ -25,7 +25,7 @@ function loop() {
 
     if [[ $FIRST_LOOP ]]; then
       TEMP_DIR=$(mktemp -d)
-      GIT_LFS_SKIP_SMUDGE=1 git clone --quiet -b "$BRANCH" --depth=1 --no-tags git@github.com:commaai/openpilot "$TEMP_DIR"
+      git clone --quiet -b "$BRANCH" --depth=1 --no-tags git@github.com:commaai/openpilot "$TEMP_DIR"
       git -C "$TEMP_DIR" checkout --quiet -b "$JENKINS_BRANCH"
       echo "TESTING: $(date)" >> "$TEMP_DIR/testing_jenkins"
       git -C "$TEMP_DIR" add testing_jenkins

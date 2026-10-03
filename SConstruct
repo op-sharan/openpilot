@@ -20,14 +20,14 @@ SetOption('num_jobs', max(1, int(os.cpu_count()/(1 if "CI" in os.environ else 2)
 
 AddOption('--ccflags', action='store', type='string', default='', help='pass arbitrary flags over the command line')
 AddOption('--verbose', action='store_true', default=False, help='show full build commands')
-release = not os.path.exists(File('#.gitmodules').abspath) # file absent on release branch, see release_files.py
+release = os.path.exists(File('#git_src_commit').abspath)  # written by release packaging
 AddOption('--minimal',
           action='store_false',
           dest='extras',
           default=(not COMMA_HARDWARE and not release),
           help='the minimum build to run openpilot. no tests, tools, etc.')
 
-submodule_python_paths = [
+dependency_python_paths = [
   Dir("#").abspath,
   Dir("#msgq_repo").abspath,
   Dir("#opendbc_repo").abspath,
@@ -35,12 +35,12 @@ submodule_python_paths = [
   Dir("#teleoprtc_repo").abspath,
   Dir("#tinygrad_repo").abspath,
 ]
-for p in reversed(submodule_python_paths):
+for p in reversed(dependency_python_paths):
   if p not in sys.path:
     sys.path.insert(0, p)
 
 if external_pythonpath := os.environ.get("PYTHONPATH"):
-  submodule_python_paths += [p for p in external_pythonpath.split(os.pathsep) if p and p not in submodule_python_paths]
+  dependency_python_paths += [p for p in external_pythonpath.split(os.pathsep) if p and p not in dependency_python_paths]
 
 # Detect platform
 arch = subprocess.check_output(["uname", "-m"], encoding='utf8').rstrip()
@@ -120,7 +120,7 @@ def _libflags(target, source, env, for_signature):
 env = Environment(
   ENV={
     "PATH": os.environ['PATH'],
-    "PYTHONPATH": os.pathsep.join(submodule_python_paths),
+    "PYTHONPATH": os.pathsep.join(dependency_python_paths),
     "ACADOS_SOURCE_DIR": acados.DIR,
     "ACADOS_PYTHON_INTERFACE_PATH": acados.TEMPLATE_DIR,
     "TERA_PATH": acados.TERA_PATH
@@ -256,7 +256,7 @@ common = [_common, 'json11', 'zmq']
 Export('common')
 
 # Build messaging (cereal + msgq + socketmaster + their dependencies)
-# Enable swaglog include in submodules
+# Enable swaglog include in dependency sources
 env_swaglog = env.Clone()
 env_swaglog['CXXFLAGS'].append('-DSWAGLOG="\\"common/swaglog.h\\""')
 SConscript(['msgq_repo/SConscript'], exports={'env': env_swaglog})
@@ -268,7 +268,7 @@ messaging = [socketmaster, msgq, 'capnp', 'kj',]
 Export('messaging')
 
 
-# Build other submodules
+# Build dependency sources
 SConscript(['panda/SConscript'])
 
 # Build rednose library

@@ -19,6 +19,11 @@ if [ -z "$TEST_DIR" ]; then
   exit 1
 fi
 
+if [ ! -d "$SOURCE_DIR" ] && [ -z "${SOURCE_REPO:-}" ]; then
+  echo "SOURCE_REPO must name the repository to clone when SOURCE_DIR does not exist"
+  exit 1
+fi
+
 # prevent storage from filling up
 rm -rf /data/media/0/realdata/*
 
@@ -56,53 +61,26 @@ sleep infinity
 EOF
 chmod +x "$CONTINUE_PATH"
 
-export GIT_LFS_SKIP_SMUDGE=1
-pull_lfs() {
-  if [ -n "${CHESTNUT:-}" ]
-  then
-    git lfs pull --exclude=''
-    return
-  fi
-
-  # Keep the precompiled big model as a pointer on devices without Chestnut.
-  LFS_EXCLUDE="openpilot/selfdrive/modeld/models/big_driving_tinygrad.pkl"
-
-  git config --local lfs.fetchexclude "$LFS_EXCLUDE"
-  git lfs pull --exclude="$LFS_EXCLUDE"
-  if git cat-file -e "HEAD:$LFS_EXCLUDE"; then
-    rm -f "$LFS_EXCLUDE"
-    git checkout -- "$LFS_EXCLUDE"
-
-    # `git lfs prune` retains objects referenced by HEAD, even when excluded.
-    # Remove this one explicitly so safe checkout doesn't rsync it either.
-    oid=$(git show "HEAD:$LFS_EXCLUDE" | sed -n 's/^oid sha256://p')
-    lfs_objects=$(git lfs env | sed -n 's/^LocalMediaDir=//p')
-    if [[ "$oid" =~ ^[0-9a-f]{64}$ && -n "$lfs_objects" ]]; then
-      rm -f "$lfs_objects/${oid:0:2}/${oid:2:2}/$oid"
-    fi
-  fi
-}
-
 safe_checkout() {
   # completely clean TEST_DIR
 
   cd "$SOURCE_DIR"
+  local target_commit
 
   # cleanup orphaned locks
-  find .git -type f -name "*.lock" -exec rm {} +
+  find "$(git rev-parse --absolute-git-dir)" -type f -name "*.lock" -exec rm {} +
 
-  git reset --hard
-  git fetch --no-tags --no-recurse-submodules -j4 --verbose --depth 1 origin "$GIT_COMMIT"
+  git -c submodule.recurse=false fetch --no-tags --no-recurse-submodules -j4 --verbose --depth 1 origin "$GIT_COMMIT"
+  target_commit="$(git rev-parse 'FETCH_HEAD^{commit}')"
+  if [ -f tools/vendor/check.py ]; then
+    python3 tools/vendor/check.py --revision "$target_commit"
+  fi
   find . -maxdepth 1 -not -path './.git' -not -name '.' -not -name '..' -exec rm -rf '{}' \;
-  git reset --hard "$GIT_COMMIT"
-  git checkout "$GIT_COMMIT"
+  git -c submodule.recurse=false reset --hard --no-recurse-submodules "$target_commit"
+  git -c submodule.recurse=false checkout --force --no-recurse-submodules "$target_commit"
   git clean -xdff
-  git submodule sync
-  git submodule foreach --recursive "git reset --hard && git clean -xdff"
-  git submodule update --init --recursive
-  git submodule foreach --recursive "git reset --hard && git clean -xdff"
+  python3 tools/vendor/check.py
 
-  pull_lfs
 
   echo "git checkout done, t=$SECONDS"
   du -hs "$SOURCE_DIR" "$SOURCE_DIR/.git"
@@ -114,27 +92,28 @@ unsafe_checkout() {( set -e
   # checkout directly in test dir, leave old build products
 
   cd "$TEST_DIR"
+  local target_commit
 
   # cleanup orphaned locks
-  find .git -type f -name "*.lock" -exec rm {} +
+  find "$(git rev-parse --absolute-git-dir)" -type f -name "*.lock" -exec rm {} +
 
-  git fetch --no-tags --no-recurse-submodules -j8 --verbose --depth 1 origin "$GIT_COMMIT"
-  git checkout --force --no-recurse-submodules "$GIT_COMMIT"
-  git reset --hard "$GIT_COMMIT"
+  git -c submodule.recurse=false fetch --no-tags --no-recurse-submodules -j8 --verbose --depth 1 origin "$GIT_COMMIT"
+  target_commit="$(git rev-parse 'FETCH_HEAD^{commit}')"
+  if [ -f tools/vendor/check.py ]; then
+    python3 tools/vendor/check.py --revision "$target_commit"
+  fi
+  git -c submodule.recurse=false checkout --force --no-recurse-submodules "$target_commit"
+  git -c submodule.recurse=false reset --hard --no-recurse-submodules "$target_commit"
   git clean -dff
-  git submodule sync
-  git submodule foreach --recursive "git reset --hard && git clean -df"
-  git submodule update --init --recursive
-  git submodule foreach --recursive "git reset --hard && git clean -df"
+  python3 tools/vendor/check.py
 
-  pull_lfs
 )}
 
 export GIT_PACK_THREADS=8
 
 # set up environment
 if [ ! -d "$SOURCE_DIR" ]; then
-  git clone https://github.com/commaai/openpilot.git "$SOURCE_DIR"
+  git -c submodule.recurse=false clone --no-recurse-submodules "$SOURCE_REPO" "$SOURCE_DIR"
 fi
 
 if [ ! -z "$UNSAFE" ]; then
@@ -150,7 +129,7 @@ else
   safe_checkout
 fi
 
-# submodule package symlinks for PYTHONPATH imports on device (same as launch_chffrplus.sh)
+# Vendored package symlinks for PYTHONPATH imports on device (same as launch_chffrplus.sh)
 cd "$TEST_DIR"
 ln -sfn msgq_repo/msgq msgq
 ln -sfn opendbc_repo/opendbc opendbc

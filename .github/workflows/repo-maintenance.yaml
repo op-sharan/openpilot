@@ -9,9 +9,6 @@ on:
 
 env:
   PYTHONPATH: ${{ github.workspace }}
-  GIT_CONFIG_COUNT: 1
-  GIT_CONFIG_KEY_0: lfs.fetchexclude
-  GIT_CONFIG_VALUE_0: openpilot/selfdrive/modeld/models/big_driving_tinygrad.pkl
 
 jobs:
   package_updates:
@@ -22,8 +19,6 @@ jobs:
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     steps:
     - uses: actions/checkout@v7
-      with:
-        submodules: true
     - run: ./tools/op.sh setup
     - name: uv lock
       run: uv lock --upgrade
@@ -47,10 +42,8 @@ jobs:
           | head -10 \
           | while IFS=$'\t' read size path; do echo "$size  ${path##*/}"; done >> $GITHUB_OUTPUT
         echo 'EOF' >> $GITHUB_OUTPUT
-    - name: bump submodules
-      run: |
-        git submodule update --remote
-        git add .
+    - name: Check tracked dependencies
+      run: python3 tools/vendor/check.py
     - name: update car docs
       run: |
         python openpilot/selfdrive/car/docs.py

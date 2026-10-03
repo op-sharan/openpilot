@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 set -ex
+set -o pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null && pwd)"
 
 SOURCE_DIR="$(git -C "$DIR" rev-parse --show-toplevel)"
+python3 "$SOURCE_DIR/tools/vendor/check.py"
 if [ -z "$TARGET_DIR" ]; then
   TARGET_DIR="$(mktemp -d)"
 fi
@@ -13,22 +15,17 @@ source "$DIR/identity.sh"
 
 echo "[-] Setting up target repo T=$SECONDS"
 
-rm -rf "$TARGET_DIR"
 mkdir -p "$TARGET_DIR"
+if [ -n "$(find "$TARGET_DIR" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+  echo "TARGET_DIR must be empty: $TARGET_DIR"
+  exit 1
+fi
 cd "$TARGET_DIR"
-cp -r "$SOURCE_DIR/.git" "$TARGET_DIR"
-
-echo "[-] setting up stripped branch sync T=$SECONDS"
-cd "$TARGET_DIR"
-
-# tmp branch
-git checkout --orphan tmp
-
-# remove everything except .git
-echo "[-] erasing old openpilot T=$SECONDS"
-git submodule deinit -f --all
-git rm -rf --cached .
-find . -maxdepth 1 -not -path './.git' -not -name '.' -not -name '..' -exec rm -rf '{}' \;
+# Independent metadata also supports sources whose .git is a worktree file.
+git init --initial-branch=tmp
+if ORIGIN_URL="$(git -C "$SOURCE_DIR" remote get-url origin)"; then
+  git remote add origin "$ORIGIN_URL"
+fi
 
 # do the files copy
 echo "[-] copying files T=$SECONDS"
@@ -37,13 +34,11 @@ cd "$SOURCE_DIR"
 
 # in the directory
 cd "$TARGET_DIR"
-rm -rf .git/modules/
 
-source "$SOURCE_DIR/tools/release/setup_lfs.sh"
 
 # include source commit hash and build date in commit
-GIT_HASH=$(git --git-dir="$SOURCE_DIR/.git" rev-parse HEAD)
-GIT_COMMIT_DATE=$(git --git-dir="$SOURCE_DIR/.git" show --no-patch --format='%ct %ci' HEAD)
+GIT_HASH=$(git -C "$SOURCE_DIR" rev-parse HEAD)
+GIT_COMMIT_DATE=$(git -C "$SOURCE_DIR" show --no-patch --format='%ct %ci' HEAD)
 DATETIME=$(date '+%Y-%m-%dT%H:%M:%S')
 VERSION=$(cat "$SOURCE_DIR/openpilot/common/version.h" | awk -F\" '{print $2}')
 
@@ -60,20 +55,15 @@ date: $DATETIME
 master commit: $GIT_HASH
 "
 
-# should be no submodules or unexpected LFS files
-git submodule status
-if [ -z "$INCLUDE_BIG_MODEL" ] && [ -n "$(git lfs ls-files)" ]; then
-  echo "LFS files detected!"
-  exit 1
-fi
+# Check the packaged dependency layout and ordinary checkout assets.
+python3 tools/vendor/check.py --revision HEAD
 
 source "$SOURCE_DIR/tools/release/check_file_sizes.sh"
 
 if [ ! -z "$BRANCH" ]; then
   echo "[-] Pushing to $BRANCH T=$SECONDS"
   # uploading the larger pack is faster than spending CPU to optimize it
-  # The big model is already published to LFS by the source branch.
-  GIT_LFS_SKIP_PUSH=1 git -c pack.window=0 -c pack.depth=0 -c pack.compression=0 push -f origin "tmp:$BRANCH"
+  git -c pack.window=0 -c pack.depth=0 -c pack.compression=0 push -f origin "tmp:$BRANCH"
 fi
 
 echo "[-] done T=$SECONDS, ready at $TARGET_DIR"

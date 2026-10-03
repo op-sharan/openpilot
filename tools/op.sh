@@ -73,12 +73,29 @@ function op_get_openpilot_dir() {
 
 function op_install_post_commit() {
   op_get_openpilot_dir
-  if [[ ! -d "$OPENPILOT_ROOT/.git/hooks/post-commit.d" ]]; then
-    mkdir "$OPENPILOT_ROOT/.git/hooks/post-commit.d"
-    mv "$OPENPILOT_ROOT/.git/hooks/post-commit" "$OPENPILOT_ROOT/.git/hooks/post-commit.d" 2>/dev/null || true
+  op_check_openpilot_dir
+  local git_dir common_dir hooks_dir hook_source
+  git_dir="$(git -C "$OPENPILOT_ROOT" rev-parse --absolute-git-dir)"
+  common_dir="$(git -C "$OPENPILOT_ROOT" rev-parse --path-format=absolute --git-common-dir)"
+  if [[ "$git_dir" != "$common_dir" || -d "$common_dir/worktrees" ]]; then
+    echo "Hook installation requires a standalone checkout without linked worktrees; shared hooks were not changed."
+    return 1
   fi
-  cd "$OPENPILOT_ROOT/.git/hooks"
-  ln -sf ../../scripts/post-commit post-commit
+  hooks_dir="$(git -C "$OPENPILOT_ROOT" rev-parse --path-format=absolute --git-path hooks)"
+  if [[ "$hooks_dir" != "$git_dir/hooks" ]]; then
+    echo "A custom hooks directory is configured; install the linter there manually. Existing hooks were not changed."
+    return 1
+  fi
+  hook_source="$(cd "$OPENPILOT_ROOT" && pwd)/scripts/post-commit"
+  mkdir -p "$hooks_dir/post-commit.d"
+  if [[ ( -e "$hooks_dir/post-commit" || -L "$hooks_dir/post-commit" ) && ! "$hooks_dir/post-commit" -ef "$hook_source" ]]; then
+    if [[ -e "$hooks_dir/post-commit.d/post-commit" || -L "$hooks_dir/post-commit.d/post-commit" ]]; then
+      echo "An earlier post-commit hook is already saved; resolve the two existing hooks before installing."
+      return 1
+    fi
+    mv "$hooks_dir/post-commit" "$hooks_dir/post-commit.d/post-commit"
+  fi
+  ln -sf "$hook_source" "$hooks_dir/post-commit"
 }
 
 function op_check_openpilot_dir() {
@@ -102,22 +119,24 @@ function op_check_git() {
     echo -e " ↳ [${GREEN}✔${NC}] git found."
   fi
 
-  echo "Checking for git lfs files..."
+  echo "Checking checked-in model resources..."
   if [[ $(file -b "$OPENPILOT_ROOT/openpilot/selfdrive/modeld/models/dmonitoring_model.onnx") == "data" ]]; then
-    echo -e " ↳ [${GREEN}✔${NC}] git lfs files found."
+    echo -e " ↳ [${GREEN}✔${NC}] model resources found."
   else
-    echo -e " ↳ [${RED}✗${NC}] git lfs files not found! Run 'git lfs pull'"
+    echo -e " ↳ [${RED}✗${NC}] model resources missing or invalid; restore the ordinary checkout"
     return 1
   fi
 
-  echo "Checking for git submodules..."
-  for name in $(git config --file .gitmodules --get-regexp path | awk '{ print $2 }' | tr '\n' ' '); do
-    if [[ -z $(ls "$OPENPILOT_ROOT/$name") ]]; then
-      echo -e " ↳ [${RED}✗${NC}] git submodule $name not found! Run 'git submodule update --init --recursive'"
-      return 1
-    fi
-  done
-  echo -e " ↳ [${GREEN}✔${NC}] git submodules found."
+  echo "Checking tracked dependency sources..."
+  op_check_dependencies
+}
+
+function op_check_dependencies() {
+  local python_bin="$OPENPILOT_ROOT/.venv/bin/python3"
+  if [[ ! -x "$python_bin" ]]; then
+    python_bin=python3
+  fi
+  "$python_bin" "$OPENPILOT_ROOT/tools/vendor/check.py" "$@"
 }
 
 function op_check_os() {
@@ -181,16 +200,14 @@ EOF
   op_check_openpilot_dir
   op_check_os
 
-  # Submodules must be present before uv sync: pyproject path sources
-  # (pandacan, opendbc, msgq, ...) live in the submodule checkouts.
-  echo "Getting git submodules..."
-  st="$(date +%s)"
-  if ! retry 3 git submodule update --jobs 4 --init --recursive; then
-    echo -e " ↳ [${RED}✗${NC}] Getting git submodules failed!"
-    return 1
-  fi
-  et="$(date +%s)"
-  echo -e " ↳ [${GREEN}✔${NC}] Submodules installed successfully in $((et - st)) seconds."
+  # Local Python package sources are shipped in the checkout. Bootstrap Python
+  # before running the full manifest validator on machines without Python yet.
+  for path in upstream-sync.json panda/pyproject.toml opendbc_repo/pyproject.toml msgq_repo/pyproject.toml rednose_repo/pyproject.toml teleoprtc_repo/pyproject.toml tinygrad_repo/pyproject.toml; do
+    if [[ ! -f "$OPENPILOT_ROOT/$path" ]]; then
+      echo "Missing tracked dependency source: $path. Restore the complete checkout."
+      return 1
+    fi
+  done
 
   echo "Installing dependencies..."
   st="$(date +%s)"
@@ -203,21 +220,7 @@ EOF
   echo -e " ↳ [${GREEN}✔${NC}] Dependencies installed successfully in $((et - st)) seconds."
 
   op_activate_venv
-
-  echo "Pulling git lfs files..."
-  st="$(date +%s)"
-  git config --local filter.lfs.clean ".venv/bin/git-lfs clean -- %f"
-  git config --local filter.lfs.smudge ".venv/bin/git-lfs smudge -- %f"
-  git config --local filter.lfs.process ".venv/bin/git-lfs filter-process"
-  git config --local filter.lfs.required true
-  printf '#!/bin/sh\nexec .venv/bin/git-lfs pre-push "$@"\n' > "$(git rev-parse --git-path hooks)/pre-push"
-  chmod +x "$(git rev-parse --git-path hooks)/pre-push"
-  if ! retry 3 git lfs pull; then
-    echo -e " ↳ [${RED}✗${NC}] Pulling git lfs files failed!"
-    return 1
-  fi
-  et="$(date +%s)"
-  echo -e " ↳ [${GREEN}✔${NC}] Files pulled successfully in $((et - st)) seconds."
+  op_check_dependencies
 
   op_check
 }
@@ -371,6 +374,10 @@ function op_check_agnos_update() {
 }
 
 function op_switch() {
+  op_get_openpilot_dir
+  op_check_openpilot_dir
+  cd "$OPENPILOT_ROOT"
+
   REMOTE="origin"
   if [ "$#" -gt 1 ]; then
     REMOTE="$1"
@@ -383,17 +390,17 @@ function op_switch() {
   fi
   BRANCH="$1"
 
-  git config --replace-all remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
-  git submodule deinit --all --force
-  git fetch "$REMOTE" "$BRANCH"
-  git checkout -f FETCH_HEAD
-  git checkout -B "$BRANCH" --track "$REMOTE"/"$BRANCH"
-  git submodule deinit --all --force
-  git reset --hard "${REMOTE}/${BRANCH}"
+  git config --replace-all "remote.${REMOTE}.fetch" "+refs/heads/*:refs/remotes/${REMOTE}/*"
+  git -c submodule.recurse=false fetch --no-recurse-submodules "$REMOTE" "$BRANCH"
+  local target_commit
+  target_commit="$(git rev-parse 'FETCH_HEAD^{commit}')"
+  # Validate the target before discarding the current checkout's changes.
+  op_check_dependencies --revision "$target_commit"
+  git -c submodule.recurse=false checkout --force --no-recurse-submodules -B "$BRANCH" "$target_commit"
+  git branch --set-upstream-to="${REMOTE}/${BRANCH}" "$BRANCH"
+  git -c submodule.recurse=false reset --hard --no-recurse-submodules "$target_commit"
   git clean -df
-  git submodule update --init --recursive
-  git submodule foreach git reset --hard
-  git submodule foreach git clean -df
+  op_check_dependencies
 
   # remove openpilot update flag if present
   rm -f .overlay_init

@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+      - Domathon
   pull_request:
   workflow_dispatch:
   workflow_call:
@@ -20,11 +21,28 @@ concurrency:
 env:
   CI: 1
   PYTHONPATH: ${{ github.workspace }}
-  GIT_CONFIG_COUNT: 1
-  GIT_CONFIG_KEY_0: lfs.fetchexclude
-  GIT_CONFIG_VALUE_0: openpilot/selfdrive/modeld/models/big_driving_tinygrad.pkl
 
 jobs:
+  source_integrity:
+    name: source integrity
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@v7
+    - name: Validate tracked dependencies
+      run: python3 tools/vendor/check.py --revision HEAD
+    - name: Test dependency and packaging tools
+      run: |
+        python3 -m unittest discover -s tools/vendor/tests -v
+        python3 -m unittest discover -s tools/release/tests -v
+        python3 -m unittest discover -s openpilot/system/updated/tests -v
+    - name: Check setup and release shell syntax
+      run: |
+        for script in tools/op.sh tools/release/*.sh openpilot/selfdrive/test/setup_device_ci.sh; do
+          bash -n "$script"
+        done
+
   build_release:
     name: build release
     runs-on: ${{
@@ -38,14 +56,6 @@ jobs:
       PYTHONPATH: /tmp/releasepilot
     steps:
     - uses: actions/checkout@v7
-      with:
-        submodules: true
-    - name: Getting LFS files
-      uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60
-      with:
-        timeout_minutes: 2
-        max_attempts: 3
-        command: git lfs pull
     - name: Build devel
       timeout-minutes: 1
       run: TARGET_DIR=$STRIPPED_DIR tools/release/build_stripped.sh
@@ -58,10 +68,9 @@ jobs:
       timeout-minutes: 1
       working-directory: ${{ env.STRIPPED_DIR }}
       run: tools/release/check-dirty.sh
-    - name: Check submodules
-      if: github.repository == 'commaai/openpilot'
+    - name: Check tracked dependencies
       timeout-minutes: 3
-      run: tools/release/check-submodules.sh
+      run: python3 tools/vendor/check.py --revision HEAD
 
   build_mac:
     name: build macOS
@@ -125,7 +134,6 @@ jobs:
       run: scons
     - name: Run replay
       timeout-minutes: ${{ contains(runner.name, 'nsc') && 2 || 20 }}
-      continue-on-error: ${{ github.ref == 'refs/heads/master' }}
       run: openpilot/selfdrive/test/process_replay/test_processes.py -j$(nproc)
     - name: Print diff
       id: print-diff

@@ -19,6 +19,7 @@ from openpilot.common.swaglog import cloudlog
 from openpilot.selfdrive.selfdrived.alertmanager import set_offroad_alert
 from openpilot.common.hardware import AGNOS, HARDWARE
 from openpilot.common.version import get_build_metadata
+from openpilot.common.vendor_manifest import validate_revision
 
 LOCK_FILE = os.getenv("UPDATER_LOCK_FILE", "/tmp/safe_staging_overlay.lock")
 STAGING_ROOT = os.getenv("UPDATER_STAGING_ROOT", "/data/safe_staging")
@@ -112,6 +113,8 @@ def setup_git_options(cwd: str) -> None:
     ("protocol.version", "2"),
     ("gc.auto", "0"),
     ("gc.autoDetach", "false"),
+    ("submodule.recurse", "false"),
+    ("fetch.recurseSubmodules", "false"),
   ]
   for option, value in git_cfg:
     run(["git", "config", option, value], cwd)
@@ -168,7 +171,7 @@ def init_overlay() -> None:
   run(["sudo"] + mount_cmd)
   run(["sudo", "chmod", "755", os.path.join(OVERLAY_METADATA, "work")])
 
-  git_diff = run(["git", "diff", "--submodule=diff"], OVERLAY_MERGED)
+  git_diff = run(["git", "diff"], OVERLAY_MERGED)
   params.put("GitDiff", git_diff, block=True)
   cloudlog.info(f"git diff output:\n{git_diff}")
 
@@ -180,14 +183,15 @@ def finalize_update() -> None:
   # Remove the update ready flag and any old updates
   cloudlog.info("creating finalized version of the overlay")
   set_consistent_flag(False)
+  validate_revision(OVERLAY_MERGED, "HEAD")
 
   # Copy the merged overlay view and set the update ready flag
   if os.path.exists(FINALIZED):
     shutil.rmtree(FINALIZED)
   shutil.copytree(OVERLAY_MERGED, FINALIZED, symlinks=True)
 
-  run(["git", "reset", "--hard"], FINALIZED)
-  run(["git", "submodule", "foreach", "--recursive", "git", "reset", "--hard"], FINALIZED)
+  run(["git", "reset", "--hard", "--no-recurse-submodules"], FINALIZED)
+  validate_revision(FINALIZED, "HEAD")
 
   cloudlog.info("Starting git cleanup in finalized update")
   t = time.monotonic()
@@ -384,20 +388,23 @@ class Updater:
     run(["git", "config", "--replace-all", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"], OVERLAY_MERGED)
 
     branch = self.target_branch
-    git_fetch_output = run(["git", "fetch", "origin", branch], OVERLAY_MERGED)
+    git_fetch_output = run(["git", "fetch", "--no-recurse-submodules", "origin", branch], OVERLAY_MERGED)
     cloudlog.info("git fetch success: %s", git_fetch_output)
+
+    # Validate using the running updater before checking out or executing any update.
+    # A branch containing gitlinks or an invalid dependency manifest is not installable.
+    fetched_commit = run(["git", "rev-parse", "FETCH_HEAD^{commit}"], OVERLAY_MERGED).strip()
+    validate_revision(OVERLAY_MERGED, fetched_commit)
 
     cloudlog.info("git reset in progress")
     cmds = [
-      ["git", "checkout", "--force", "--no-recurse-submodules", "-B", branch, "FETCH_HEAD"],
+      ["git", "checkout", "--force", "--no-recurse-submodules", "-B", branch, fetched_commit],
       ["git", "branch", "--set-upstream-to", f"origin/{branch}"],
-      ["git", "reset", "--hard"],
+      ["git", "reset", "--hard", "--no-recurse-submodules"],
       ["git", "clean", "-xdff"],
-      ["git", "submodule", "sync"],
-      ["git", "submodule", "update", "--init", "--recursive"],
-      ["git", "submodule", "foreach", "--recursive", "git", "reset", "--hard"],
     ]
     r = [run(cmd, OVERLAY_MERGED) for cmd in cmds]
+    validate_revision(OVERLAY_MERGED, "HEAD")
     cloudlog.info("git reset success: %s", '\n'.join(r))
 
     # TODO: show agnos download progress
