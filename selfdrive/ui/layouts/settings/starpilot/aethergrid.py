@@ -1008,13 +1008,16 @@ class PanelManagerView(AetherInteractiveMixin, Widget):
     track_h = 10.0
     track_w = seg_w * n
     start_x = rect.x + (rect.width - track_w) / 2
-    track_y = rect.y + rect.height - 16
+    track_y = rect.y + rect.height - 12
 
     label = f"{self._current_page + 1} / {self._page_count}"
     lf = gui_app.font(FontWeight.MEDIUM)
-    ls = 16.0
-    lw = measure_text_cached(lf, label, int(ls)).x
-    rl.draw_text_ex(lf, label, rl.Vector2(int(rect.x + (rect.width - lw) / 2), int(track_y - ls - 6)), int(ls), 0, with_alpha(AetherListColors.MUTED, 200))
+    ls = 22.0
+    label_size = measure_text_cached(lf, label, int(ls))
+    rl.draw_text_ex(
+      lf, label, rl.Vector2(int(rect.x + (rect.width - label_size.x) / 2), int(track_y - label_size.y - 4)),
+      int(ls), 0, with_alpha(AetherListColors.MUTED, 200),
+    )
 
     track_col = with_alpha(AetherListColors.MUTED, 60)
     rl.draw_rectangle_rounded(rl.Rectangle(start_x, track_y, track_w, track_h), 0.5, 8, track_col)
@@ -1026,7 +1029,8 @@ class PanelManagerView(AetherInteractiveMixin, Widget):
 
     if self._page_count > 8:
       more_x = int(start_x + track_w + 10)
-      rl.draw_text_ex(lf, "···", rl.Vector2(more_x, int(track_y - 2)), 14, 0, AetherListColors.MUTED)
+      more_h = measure_text_cached(lf, "···", 14).y
+      rl.draw_text_ex(lf, "···", rl.Vector2(more_x, int(track_y + track_h - more_h)), 14, 0, AetherListColors.MUTED)
 
   # ── lifecycle ──────────────────────────────────────────────
 

@@ -10,6 +10,7 @@ from openpilot.starpilot.common.starpilot_variables import ACTIVE_THEME_PATH
 from openpilot.system.ui.lib.application import gui_app, FontWeight, MouseEvent, MousePos
 from openpilot.system.ui.lib.multilang import tr, tr_noop
 from openpilot.system.ui.widgets import Widget, DialogResult
+from openpilot.system.ui.widgets.confirm_dialog import ConfirmDialog
 from openpilot.system.ui.widgets.label import gui_label
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.selfdrive.ui.lib.starpilot_state import starpilot_state
@@ -185,7 +186,15 @@ class SoundsManagerView(AdjustorTogglesPanelView):
 
   def _activate_target(self, target: str):
     if target == "action:restore_defaults":
-      self._controller._restore_defaults()
+      def on_result(result: DialogResult):
+        if result == DialogResult.CONFIRM:
+          self._controller._restore_defaults()
+
+      gui_app.push_widget(ConfirmDialog(
+        tr("Reset all sound volumes, cooldown, and custom alerts to their defaults?"),
+        tr("Reset All"),
+        callback=on_result,
+      ))
 
   def _measure_content_height(self, content_width: float) -> float:
     col_width = (content_width - SECTION_GAP) / 2

@@ -703,7 +703,6 @@ class StarPilotNavigationLayout(_SettingsPage):
         tr("Searching…"),
         tr("Looking up destinations"),
         title_size=30,
-        body_size=22,
         border=with_alpha(PANEL_STYLE.surface_border, 14),
         style=PANEL_STYLE,
       )
@@ -714,7 +713,6 @@ class StarPilotNavigationLayout(_SettingsPage):
         tr("Search unavailable"),
         self._search_error,
         title_size=30,
-        body_size=22,
         border=with_alpha(AetherListColors.WARNING, 45),
         style=PANEL_STYLE,
       )
@@ -837,7 +835,6 @@ class StarPilotNavigationLayout(_SettingsPage):
         empty_title,
         empty_body,
         title_size=30,
-        body_size=22,
         border=with_alpha(PANEL_STYLE.surface_border, 14),
         style=PANEL_STYLE,
       )
