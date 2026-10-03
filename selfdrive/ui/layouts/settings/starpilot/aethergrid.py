@@ -2338,7 +2338,7 @@ def draw_selectable_chip(rect: rl.Rectangle, text: str, *,
   draw_text_fit_common(
     resolved_font,
     text,
-    rl.Vector2(rect.x + padding_x, rect.y + (rect.height - font_size) / 2),
+    rl.Vector2(rect.x + padding_x, rect.y + (rect.height - font_size * FONT_SCALE) / 2),
     max(1.0, rect.width - padding_x * 2),
     font_size,
     align_center=True,
@@ -3889,8 +3889,8 @@ class AetherTile(Widget):
     
     title_color = rl.WHITE if (enabled and is_active) else rl.Color(236, 242, 250, 255)
     
-    title_y = ry + (rh / 2) - title_size - 2
-    status_y = ry + (rh / 2) + 6
+    title_y = ry + (rh - (title_size + status_size) * FONT_SCALE - 8) / 2
+    status_y = title_y + title_size * FONT_SCALE + 8
     
     max_text_width = rw - (content_pad * 2) - int(rh * 0.40) - 10
     font = getattr(self, "_font", gui_app.font(FontWeight.MEDIUM))
@@ -5412,7 +5412,7 @@ class AetherSegmentedControl(Widget):
         draw_text_fit_common(
           self._font,
           label,
-          rl.Vector2(face_rect.x + 16, face_rect.y + (face_rect.height - title_size) / 2),
+          rl.Vector2(face_rect.x + 16, face_rect.y + (face_rect.height - title_size * FONT_SCALE) / 2),
           face_rect.width - 32,
           title_size,
           align_center=True,

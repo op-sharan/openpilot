@@ -12,7 +12,7 @@ from typing import Any
 import pyray as rl
 
 from openpilot.system.hardware import HARDWARE
-from openpilot.system.ui.lib.application import gui_app, FontWeight
+from openpilot.system.ui.lib.application import gui_app, FontWeight, FONT_SCALE
 from openpilot.system.ui.lib.multilang import tr, tr_noop
 from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.widgets import DialogResult, Widget
@@ -697,16 +697,18 @@ class AetherBackupsCareDialog(Widget):
     status_rect = snap_rect(rl.Rectangle(dx + MARGIN, dy + 170, content_w, 80))
     draw_list_group_shell(status_rect, style=PANEL_STYLE)
 
-    gui_label(rl.Rectangle(status_rect.x + 20, status_rect.y + 10, status_rect.width - 40, 24),
-              tr("System Status"), 22, AetherListColors.MUTED, FontWeight.SEMI_BOLD)
+    gui_label(rl.Rectangle(status_rect.x + 20, status_rect.y + 6, status_rect.width - 40, 30),
+              tr("System Status"), 24, AetherListColors.MUTED, FontWeight.SEMI_BOLD)
 
     storage_text = tr("Storage: {}").format(self._controller.storage_summary())
     backup_text = tr("Backups: {}  •  Snapshots: {}").format(
       self._controller.backup_count_text(), self._controller.toggle_backup_count_text())
-    gui_label(rl.Rectangle(status_rect.x + 20, status_rect.y + 40, status_rect.width - 40, 24),
-              storage_text, 22, AetherListColors.HEADER, FontWeight.MEDIUM)
-    gui_label(rl.Rectangle(status_rect.x + 300, status_rect.y + 40, status_rect.width - 320, 24),
-              backup_text, 22, AetherListColors.HEADER, FontWeight.MEDIUM)
+    storage_width = min(360.0, (status_rect.width - 64) / 2)
+    backup_x = status_rect.x + 44 + storage_width
+    gui_label(rl.Rectangle(status_rect.x + 20, status_rect.y + 42, storage_width, 34),
+              storage_text, 28, AetherListColors.HEADER, FontWeight.MEDIUM)
+    gui_label(rl.Rectangle(backup_x, status_rect.y + 42, status_rect.width - 64 - storage_width, 34),
+              backup_text, 28, AetherListColors.HEADER, FontWeight.MEDIUM)
 
     mouse_pos = gui_app.last_mouse_event.pos
 
@@ -769,7 +771,7 @@ class AetherBackupsCareDialog(Widget):
       draw_text_fit_common(
         self._font_btn,
         btn["text"],
-        rl.Vector2(btn_rect.x + 16, btn_rect.y + (btn_rect.height - font_size) / 2),
+        rl.Vector2(btn_rect.x + 16, btn_rect.y + (btn_rect.height - font_size * FONT_SCALE) / 2),
         btn_rect.width - 32,
         font_size,
         align_center=True,

@@ -633,7 +633,7 @@ class StarPilotNavigationLayout(_SettingsPage):
         fill = with_alpha(AetherListColors.PRIMARY, 54 if enabled and (hovered or pressed) else 24 if enabled else 8)
         border = with_alpha(AetherListColors.PRIMARY, 110 if enabled else 28)
         text_color = AetherListColors.HEADER if enabled else AetherListColors.MUTED
-      draw_action_pill(rect, label, fill, border, text_color, font_size=24)
+      draw_action_pill(rect, label, fill, border, text_color, font_size=26)
     return rows * NAV_ACTION_HEIGHT + max(0, rows - 1) * NAV_ACTION_GAP
 
   def _draw_summary_row(self, rect: rl.Rectangle, manager: NavigationManagerView) -> None:
@@ -666,9 +666,6 @@ class StarPilotNavigationLayout(_SettingsPage):
       action_pill=True,
       action_pill_height=64,
       action_pill_width=220,
-      title_size=34,
-      subtitle_size=24,
-      action_text_size=24,
       action_fill=with_alpha(AetherListColors.DANGER if target_id == "action:cancel" else AetherListColors.SUCCESS, 38 if enabled else 10),
       action_border=with_alpha(AetherListColors.DANGER if target_id == "action:cancel" else AetherListColors.SUCCESS, 85 if enabled else 25),
       action_text_color=AetherListColors.HEADER if enabled else AetherListColors.MUTED,
@@ -696,9 +693,6 @@ class StarPilotNavigationLayout(_SettingsPage):
       action_pill=True,
       action_pill_height=64,
       action_pill_width=180,
-      title_size=32,
-      subtitle_size=22,
-      action_text_size=24,
       row_separator=PANEL_STYLE.divider_color,
     )
     y += NAV_SEARCH_HEIGHT + NAV_GAP

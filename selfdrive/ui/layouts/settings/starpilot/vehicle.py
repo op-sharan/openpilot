@@ -7,7 +7,7 @@ import time
 import pyray as rl
 
 from openpilot.system.hardware import HARDWARE
-from openpilot.system.ui.lib.application import gui_app, FontWeight
+from openpilot.system.ui.lib.application import gui_app, FontWeight, FONT_SCALE
 from openpilot.system.ui.lib.multilang import tr, tr_noop
 from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.widgets import DialogResult, Widget
@@ -199,9 +199,9 @@ class VehicleSettingsManagerView(PanelManagerView):
       subtitle_size = 26
       value_size = 28
     else:
-      title_size = 36
+      title_size = 40
       subtitle_size = 28
-      value_size = 30
+      value_size = 34
 
     if row.type == "value" or row.id.startswith("combo:"):
       value_text = row.get_value() if row.get_value else ""
@@ -564,7 +564,7 @@ class ButtonActionComboDialog(Widget):
         rl.draw_line(int(row_rect.x + 24), sep_y, int(row_rect.x + row_rect.width - 24), sep_y, rl.Color(255, 255, 255, 16))
 
       title_x = int(row_rect.x + 24)
-      title_y = int(row_rect.y + (row_rect.height - title_fs) / 2)
+      title_y = int(row_rect.y + (row_rect.height - title_fs * FONT_SCALE) / 2)
       rl.draw_text_ex(self._font_title, self._labels[i], rl.Vector2(title_x, title_y), title_fs, 0, rl.WHITE)
 
       action_name = self._controller._get_action_name(self._keys[i])
@@ -574,12 +574,12 @@ class ButtonActionComboDialog(Widget):
       text_w = measure_text_cached(font_label, action_name, value_fs).x
       if text_w <= available_w:
         val_x = value_right - text_w
-        val_y = int(row_rect.y + (row_rect.height - value_fs) / 2)
+        val_y = int(row_rect.y + (row_rect.height - value_fs * FONT_SCALE) / 2)
         rl.draw_text_ex(font_value, action_name, rl.Vector2(val_x, val_y), value_fs, 0, rl.WHITE)
       else:
         draw_text_fit_common(
           font_value, action_name,
-          rl.Vector2(value_left, int(row_rect.y + (row_rect.height - value_fs) / 2)),
+          rl.Vector2(value_left, int(row_rect.y + (row_rect.height - value_fs * FONT_SCALE) / 2)),
           available_w, value_fs, color=rl.WHITE,
         )
 

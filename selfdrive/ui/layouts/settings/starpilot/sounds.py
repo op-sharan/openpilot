@@ -232,10 +232,12 @@ class SoundsManagerView(AdjustorTogglesPanelView):
 
     current_y = y + GROUP_TOP_INSET
 
-    label_rect = rl.Rectangle(x + 24, current_y, width - 48, 28)
+    label_rect = rl.Rectangle(x + 24, current_y - 4, width - 48, 28)
     gui_label(label_rect, tr("Reset All"), 28, AetherListColors.SUBTEXT, FontWeight.MEDIUM,
               alignment=rl.GuiTextAlignment.TEXT_ALIGN_RIGHT)
-    self._reset_rect = rl.Rectangle(label_rect.x + label_rect.width - 140, label_rect.y, 140, 24)
+    reset_width = min(240.0, label_rect.width)
+    self._reset_rect = rl.Rectangle(label_rect.x + label_rect.width - reset_width,
+                                    current_y - GROUP_TOP_INSET, reset_width, GROUP_TOP_INSET + label_rect.height)
     self._interactive_rects["action:restore_defaults"] = self._reset_rect
     current_y += 28
     for index, key in enumerate(all_keys):
