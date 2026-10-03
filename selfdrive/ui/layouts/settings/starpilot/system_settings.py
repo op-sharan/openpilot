@@ -50,6 +50,7 @@ from openpilot.selfdrive.ui.layouts.settings.starpilot.aethergrid import (
   point_hits,
   draw_text_fit_common,
   wrap_text,
+  with_alpha,
   SECTION_GAP,
   ROW_HEIGHT,
   SPACING,
@@ -466,8 +467,8 @@ class SystemSettingsManagerView(PanelManagerView):
     hovered, pressed = self._interactive_state("static:first_aid", btn_rect, pad_y=6)
 
     if pressed:
-      fill = rl.Color(139, 92, 246, 8)
-      border = rl.Color(139, 92, 246, 28)
+      fill = with_alpha(AetherListColors.PRIMARY, 8)
+      border = with_alpha(AetherListColors.PRIMARY, 28)
     elif hovered:
       fill = rl.Color(255, 255, 255, 4)
       border = rl.Color(255, 255, 255, 10)
@@ -481,7 +482,7 @@ class SystemSettingsManagerView(PanelManagerView):
     icon_x = btn_rect.x + (btn_rect.width - 60.0 * s) / 2.0
     icon_y = btn_rect.y + (btn_rect.height - 60.0 * s) / 2.0
     if pressed:
-      icon_color = rl.Color(139, 92, 246, 190)
+      icon_color = with_alpha(AetherListColors.PRIMARY, 190)
     elif hovered:
       icon_color = rl.Color(160, 170, 185, 170)
     else:

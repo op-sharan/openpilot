@@ -71,6 +71,7 @@ def _install_aethergrid_stubs():
   app_mod.MousePos = type("MousePos", (), {})
   app_mod.MouseEvent = type("MouseEvent", (), {})
   app_mod.FONT_SCALE = 1.0
+  app_mod.font_fallback = lambda font: font
   app_mod.gui_app = types.SimpleNamespace(
     width=1920,
     height=1080,
@@ -218,6 +219,34 @@ class RenderSpy:
 
   def set_parent_rect(self, rect):
     self.parent_rect = rect
+
+
+@pytest.mark.parametrize("height, body_size, body_height", [(208, 26, None), (208, 24, None), (400, 26, 80), (128, 26, None)])
+@pytest.mark.parametrize("body", ["A long explanation " * 30, "unbroken" * 50, "First line\nSecond line\nThird line"])
+def test_empty_state_body_wraps_within_card(height, body_size, body_height, body):
+  mod = _import_aethergrid()
+  wrapper = importlib.import_module("openpilot.system.ui.lib.wrap_text")
+  mod.FONT_SCALE = 1.242
+  font = types.SimpleNamespace(texture=types.SimpleNamespace(id=1))
+  mod.gui_app.font = lambda *_: font
+  labels = []
+
+  def measure(_font, text, size, spacing=0):
+    return types.SimpleNamespace(x=len(text) * size * mod.FONT_SCALE / 2, y=size * mod.FONT_SCALE)
+
+  with patch.object(mod, "measure_text_cached", measure), patch.object(wrapper, "measure_text_cached", measure), \
+       patch.object(mod, "gui_label", lambda rect, text, *a, **kw: labels.append((rect, text))):
+    mod.draw_empty_state_card(mod.rl.Rectangle(0, 0, 500, height), "Title", body,
+                              title_size=30, body_size=body_size, body_height=body_height)
+
+  body_labels = labels[1:]
+  assert body_labels
+  for rect, text in body_labels:
+    assert rect.y >= labels[0][0].y + labels[0][0].height
+    assert rect.y + rect.height <= height
+    assert measure(font, text, body_size).x <= rect.width
+  if body.startswith(("A long", "unbroken")):
+    assert body_labels[-1][1].endswith("...")
 
 
 class TestAethergridContracts(unittest.TestCase):

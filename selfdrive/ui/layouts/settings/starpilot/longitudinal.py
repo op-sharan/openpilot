@@ -520,7 +520,7 @@ class StarPilotLongitudinalLayout(_SettingsPage):
                  on_click=lambda: self._show_slider("LeadDetectionThreshold", 25, 50, unit="%"),
                  visible=self._longitudinal_enabled),
       SettingRow("NavLongitudinalAllowed", "toggle", tr_noop("Use Route Speed Control"),
-                 subtitle=tr_noop("Allow an active navigation route to reduce cruise speed for upcoming turns, ramps, and roundabouts."),
+                 subtitle=tr_noop("Use the active route to reduce cruise speed for upcoming turns, ramps, and roundabouts."),
                  get_state=lambda: self._params.get_bool("NavLongitudinalAllowed"),
                  set_state=lambda s: self._params.put_bool("NavLongitudinalAllowed", s),
                  visible=self._longitudinal_enabled),
@@ -654,7 +654,7 @@ class StarPilotLongitudinalLayout(_SettingsPage):
     # ── 4. Vision Speed Limits Rows ──
     self._vision_speed_limit_rows = [
       SettingRow("VisionSpeedLimit", "toggle", tr_noop("Vision Detection"),
-                 subtitle=tr_noop("Use the road camera to detect and display speed-limit signs, with optional use by Speed Limit Controller."),
+                 subtitle=tr_noop("Display camera-detected speed-limit signs; optionally use them with Speed Limit Controller."),
                  get_state=lambda: self._params.get_bool("VisionSpeedLimitDetection"),
                  set_state=lambda s: self._params.put_bool("VisionSpeedLimitDetection", s)),
     ]
@@ -729,7 +729,7 @@ class StarPilotLongitudinalLayout(_SettingsPage):
                                                     current_value=max(1, self._params.get_float("CustomCruiseLong"))),
                  visible=lambda: self._params.get_bool("QOLLongitudinal") and not starpilot_state.car_state.isToyota),
       SettingRow("ReverseCruise", "toggle", tr_noop("Reverse Cruise Increase"),
-                 subtitle=tr_noop("Swap Toyota/Lexus cruise increments: short press changes the dash set speed by 5; hold changes it by 1."),
+                 subtitle=tr_noop("Swap Toyota/Lexus steps: short press changes dash set speed by 5; hold changes it by 1."),
                  get_state=lambda: self._params.get_bool("ReverseCruise"),
                  set_state=lambda s: self._params.put_bool("ReverseCruise", s),
                  visible=lambda: self._params.get_bool("QOLLongitudinal") and starpilot_state.car_state.isToyota),
@@ -744,7 +744,7 @@ class StarPilotLongitudinalLayout(_SettingsPage):
                  on_click=lambda: self._show_slider("ForceStopDistanceOffset", -20, 20, unit=" ft"),
                  visible=lambda: self._params.get_bool("QOLLongitudinal") and self._params.get_bool("ForceStops")),
       SettingRow("RadarTakeoffs", "toggle", tr_noop("Radar for Takeoffs"),
-                 subtitle=tr_noop("Turns on/off using radar data to track leads at standstill, making following/takeoffs more responsive once leads move."),
+                 subtitle=tr_noop("Use radar to track leads at standstill and respond faster when they move."),
                  get_state=lambda: self._params.get_bool("RadarTakeoffs"),
                  set_state=lambda s: self._params.put_bool("RadarTakeoffs", s),
                  visible=lambda: self._params.get_bool("QOLLongitudinal") and starpilot_state.car_state.hasRadar),

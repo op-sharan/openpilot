@@ -22,6 +22,9 @@ from openpilot.selfdrive.ui.layouts.settings.starpilot.aethergrid import (
   PanelManagerView,
   RowToggleTile,
   SPACING,
+  SETTINGS_ROW_TITLE_FONT_SIZE,
+  SETTINGS_ROW_SUBTITLE_FONT_SIZE,
+  SETTINGS_ROW_VALUE_FONT_SIZE,
   SettingRow,
   TileGrid,
   TOGGLE_MIN_HEIGHT,
@@ -199,9 +202,9 @@ class VehicleSettingsManagerView(PanelManagerView):
       subtitle_size = 26
       value_size = 28
     else:
-      title_size = 40
-      subtitle_size = 28
-      value_size = 34
+      title_size = SETTINGS_ROW_TITLE_FONT_SIZE
+      subtitle_size = SETTINGS_ROW_SUBTITLE_FONT_SIZE
+      value_size = SETTINGS_ROW_VALUE_FONT_SIZE
 
     if row.type == "value" or row.id.startswith("combo:"):
       value_text = row.get_value() if row.get_value else ""

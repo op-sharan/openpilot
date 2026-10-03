@@ -9,6 +9,7 @@ from openpilot.system.ui.lib.application import gui_app, FontWeight, MousePos, M
 from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.lib.scroll_panel2 import GuiScrollPanel2
 from openpilot.system.ui.lib.text_measure import measure_text_cached
+from openpilot.system.ui.lib.wrap_text import wrap_text as wrap_body_text
 from openpilot.system.ui.widgets import Widget, DialogResult
 from openpilot.system.ui.widgets.label import gui_label
 
@@ -214,7 +215,7 @@ def draw_text_fit_common(
     render_width = measure_text_cached(font, text, actual_font_size, spacing=spacing).x
   else:
     render_width = size.x
-  nudge_y = (font_size - actual_font_size) / 2
+  nudge_y = (font_size - actual_font_size) * FONT_SCALE / 2
   draw_x = pos.x
   if align_center:
     draw_x = pos.x + (max_width - render_width) / 2
@@ -763,7 +764,7 @@ class PanelManagerView(AetherInteractiveMixin, Widget):
   PAGE_COMMIT_RATIO = 0.20
   PAGE_ANIM_DURATION = 0.28
   PAGE_SNAP_DURATION = 0.20
-  PAGE_INDICATOR_HEIGHT = 44
+  PAGE_INDICATOR_HEIGHT = 56
 
 
 
@@ -2032,12 +2033,12 @@ def draw_section_header(
 ):
   if title:
     trailing_reserved = min(320.0, rect.width * 0.38) if trailing_text else 0.0
-    title_rect = rl.Rectangle(rect.x, rect.y + (rect.height - title_size) / 2, max(1.0, rect.width - trailing_reserved), title_size + 4)
+    title_rect = rl.Rectangle(rect.x, rect.y, max(1.0, rect.width - trailing_reserved), rect.height)
     alignment = rl.GuiTextAlignment.TEXT_ALIGN_CENTER if align_center else rl.GuiTextAlignment.TEXT_ALIGN_LEFT
     gui_label(title_rect, title, title_size, title_color or style.subtitle_color, FontWeight.SEMI_BOLD, alignment=alignment)
 
   if trailing_text:
-    trailing_rect = rl.Rectangle(rect.x, rect.y + (rect.height - trailing_size) / 2, rect.width, trailing_size + 4)
+    trailing_rect = rect
     gui_label(
       trailing_rect,
       trailing_text,
@@ -2084,14 +2085,28 @@ def draw_empty_state_card(
     FontWeight.MEDIUM,
     alignment=rl.GuiTextAlignment.TEXT_ALIGN_CENTER,
   )
-  gui_label(
-    rl.Rectangle(card_rect.x + inset_x, body_y, max(1.0, card_rect.width - inset_x * 2), resolved_body_h),
-    body,
-    body_size,
-    style.subtitle_color,
-    FontWeight.NORMAL,
-    alignment=rl.GuiTextAlignment.TEXT_ALIGN_CENTER,
-  )
+  resolved_body_h = min(resolved_body_h, max(0.0, card_rect.y + card_rect.height - body_y))
+  font = gui_app.font(FontWeight.NORMAL)
+  line_height = body_size * FONT_SCALE
+  line_gap = 4.0
+  max_lines = int((resolved_body_h + line_gap) // (line_height + line_gap))
+  if not body or max_lines < 1:
+    return
+  body_width = max(1.0, card_rect.width - inset_x * 2)
+  if "\n" not in body and measure_text_cached(font, body, body_size).x <= body_width:
+    lines = [body]
+  else:
+    lines = wrap_body_text(font, body, body_size, int(body_width))
+  if len(lines) > max_lines:
+    lines = lines[:max_lines - 1] + [truncate_text_ellipsis(font, " ".join(lines[max_lines - 1:]), body_width, body_size)]
+  text_y = body_y + (resolved_body_h - len(lines) * line_height - (len(lines) - 1) * line_gap) / 2
+  for line in lines:
+    gui_label(
+      rl.Rectangle(card_rect.x + inset_x, text_y, body_width, line_height),
+      line, body_size, style.subtitle_color, FontWeight.NORMAL,
+      alignment=rl.GuiTextAlignment.TEXT_ALIGN_CENTER,
+    )
+    text_y += line_height + line_gap
 
 
 def draw_list_group_shell(
@@ -2573,7 +2588,7 @@ class AetherInlineRangeControl(Widget):
     draw_text_fit_common(
       self._font,
       label,
-      rl.Vector2(rect.x + 10, rect.y + (rect.height - 22) / 2),
+      rl.Vector2(rect.x + 10, rect.y + (rect.height - 22 * FONT_SCALE) / 2),
       max(1.0, rect.width - 20),
       22,  # font_size in draw_button
       align_center=True,
@@ -3114,14 +3129,13 @@ class AetherButton(Widget):
       accent = self._accent_color or AetherListColors.PRIMARY
       bg = accent if enabled else rl.Color(accent.r, accent.g, accent.b, 80)
       border = with_alpha(accent, 190 if enabled else 70)
+      if hovered:
+        bg = rl.Color(min(bg.r + 10, 255), min(bg.g + 10, 255), min(bg.b + 10, 255), bg.a)
+      if pressed:
+        bg = rl.Color(max(bg.r - 8, 0), max(bg.g - 8, 0), max(bg.b - 8, 0), bg.a)
     else:
-      bg = rl.Color(255, 255, 255, 10 if enabled else 5)
+      bg = rl.Color(255, 255, 255, (20 if pressed else 14 if hovered else 10) if enabled else 5)
       border = rl.Color(255, 255, 255, 22 if enabled else 10)
-
-    if hovered:
-      bg = rl.Color(min(bg.r + 10, 255), min(bg.g + 10, 255), min(bg.b + 10, 255), bg.a)
-    if pressed:
-      bg = rl.Color(max(bg.r - 8, 0), max(bg.g - 8, 0), max(bg.b - 8, 0), bg.a)
 
     rl.draw_rectangle_rounded(rect, 0.18, 12, bg)
     rl.draw_rectangle_rounded_lines_ex(rect, 0.18, 12, 1, border)
@@ -3159,7 +3173,7 @@ class AetherChip:
     draw_text_fit_common(
       gui_app.font(FontWeight.MEDIUM),
       self.text,
-      rl.Vector2(rect.x + 12, rect.y + (rect.height - self._font_size) / 2),
+      rl.Vector2(rect.x + 12, rect.y + (rect.height - self._font_size * FONT_SCALE) / 2),
       max(1.0, rect.width - 24),
       self._font_size,
       align_center=True,
@@ -5605,4 +5619,3 @@ class TileGrid(Widget):
           tile.set_parent_rect(parent_rect)
         tile.render(snap_rect(rl.Rectangle(row_x + c * (row_tile_w + self._gap), rect.y + y_offset + r * (tile_h + self._gap), row_tile_w, tile_h)))
         tile_idx += 1
-
