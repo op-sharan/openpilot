@@ -19,6 +19,8 @@ def make_widget(mode="split", pending=False):
   widget._show_max = True
   widget._slc_state = None
   widget._pedal_override = False
+  widget._font_semi_bold = widget._font_bold = None
+  widget._semi_bold_digit_center = widget._bold_digit_center = 0.5
   widget.hud_renderer = SimpleNamespace(is_cruise_set=True)
   return widget
 
@@ -169,7 +171,13 @@ def test_split_and_merged_draw_one_card_with_both_headers(monkeypatch):
     offsets = []
     monkeypatch.setattr(widget, "_draw_header", lambda bounds, text, icon, _color, rows=headers: rows.append((bounds, text, icon)))
     monkeypatch.setattr(widget, "_draw_centered_text", lambda text, *args, rows=values, **kwargs: rows.append(text))
-    monkeypatch.setattr(widget, "_draw_offset_pill", lambda bounds, text, y, rows=offsets: rows.append((bounds, text, y)))
+    def posted_limit(bounds, y, _value_color, _offset_color, *, compact=False,
+                     widget=widget, values=values, offsets=offsets):
+      if not compact:
+        values.append(widget._presentation.posted_speed_text)
+      offsets.append((bounds, widget._presentation.offset_text, y))
+
+    monkeypatch.setattr(widget, "_draw_posted_limit", posted_limit)
     monkeypatch.setattr(widget, "_draw_merged_separator", lambda _rect, rows=separators: rows.append(True))
     monkeypatch.setattr(widget, "_draw_active_emphasis", lambda *args: None)
     widget._render(widget.rect)
@@ -181,7 +189,7 @@ def test_split_and_merged_draw_one_card_with_both_headers(monkeypatch):
     assert sum(line[0].y == line[1].y == 283 for line in lines) == (1 if mode == "split" else 0)
     assert values == (["70", "mph"] if mode == "merged" else ["70", "mph", "65", "mph"])
     assert offsets[0][0].x == 30
-    assert offsets[0][2] == (477 if mode == "merged" else 451)
+    assert offsets[0][2] == pytest.approx(523 - 22 * unified_speed.FONT_SCALE - 16 if mode == "merged" else 349)
   assert len(cards) == 2
 
 
@@ -196,7 +204,7 @@ def test_merged_draws_effective_speed_once_and_skips_active_line(monkeypatch):
   monkeypatch.setattr(unified_speed.rl, "draw_line_ex", lambda *args: lines.append(args))
   monkeypatch.setattr(widget, "_draw_merged_separator", lambda _rect: None)
   monkeypatch.setattr(widget, "_draw_header", lambda *args: None)
-  monkeypatch.setattr(widget, "_draw_offset_pill", lambda *args: None)
+  monkeypatch.setattr(widget, "_draw_posted_limit", lambda *args, **kwargs: None)
   values = []
   monkeypatch.setattr(widget, "_draw_centered_text", lambda text, bounds, y, size, *args, **kwargs: values.append((text, bounds, y, size)))
   widget._render(widget.rect)
@@ -313,7 +321,7 @@ def test_pedal_cue_mutes_targets_and_preserves_units_offsets_and_layout(monkeypa
   widget._font_semi_bold = None
   widget._show_max = mode != "limit_only"
   widget._presentation = replace(widget._presentation, unit_text=unit)
-  values, headers, pauses, offsets, lines = [], [], [], [], []
+  values, headers, pauses, lines = [], [], [], []
   monkeypatch.setattr(unified_speed, "ui_state", SimpleNamespace(status=unified_speed.UIStatus.ENGAGED))
   monkeypatch.setattr(unified_speed, "draw_control_card", lambda *args, **kwargs: None)
   monkeypatch.setattr(unified_speed, "measure_text_cached", lambda *args: rl.Vector2(60, 28))
@@ -323,19 +331,20 @@ def test_pedal_cue_mutes_targets_and_preserves_units_offsets_and_layout(monkeypa
   monkeypatch.setattr(widget, "_draw_merged_separator", lambda *args: None)
   monkeypatch.setattr(widget, "_draw_header", lambda bounds, text, icon, color: headers.append(color))
   monkeypatch.setattr(widget, "_draw_centered_text", lambda text, bounds, y, size, color, **kwargs: values.append((text, bounds, size, color)))
-  monkeypatch.setattr(widget, "_draw_offset_pill", lambda bounds, text, y: offsets.append(text))
 
   widget._render(widget.rect)
   speed_values = [value for value in values if value[2] == unified_speed.VALUE_FONT_SIZE]
-  unit_values = [value for value in values if value[2] == unified_speed.UNIT_FONT_SIZE]
+  unit_values = [value for value in values if value[0] == unit and value[2] == unified_speed.UNIT_FONT_SIZE]
   expected_speeds = {"split": ["70", "65"], "merged": ["70"], "max_only": ["70"], "limit_only": ["65"]}
   assert [value[0] for value in speed_values] == expected_speeds[mode]
   assert all(value[3] == unified_speed.COLORS.DISENGAGED for value in speed_values + unit_values)
   assert all(color == unified_speed.COLORS.DISENGAGED for color in headers)
   assert [value[0] for value in unit_values] == [unit] * (2 if mode == "split" else 1)
   assert len(pauses) == 2 * len(unit_values)
-  assert all(color == unified_speed.OFFSET_COLOR for _bounds, color in pauses)
-  assert offsets == ([] if mode == "max_only" else ["+5"])
+  assert all(color == unified_speed.PAUSE_COLOR for _bounds, color in pauses)
+  offsets = [value for value in values if value[0] == "+5"]
+  assert [value[0] for value in offsets] == ([] if mode == "max_only" else ["+5"])
+  assert all(value[3] == unified_speed.COLORS.DISENGAGED for value in offsets)
   assert not any(line[2] == 3 for line in lines)
   for index, value in enumerate(unit_values):
     pause = pauses[index * 2][0]
@@ -348,6 +357,7 @@ def test_pedal_cue_mutes_targets_and_preserves_units_offsets_and_layout(monkeypa
   assert not pauses
   assert all(value[3] == unified_speed.COLORS.WHITE for value in values if value[2] == unified_speed.VALUE_FONT_SIZE)
   assert all(value[3] == unified_speed.COLORS.WHITE_TRANSLUCENT for value in values if value[2] == unified_speed.UNIT_FONT_SIZE)
+  assert all(value[3] == unified_speed.COLORS.WHITE_TRANSLUCENT for value in values if value[0] == "+5")
 
 
 def test_split_merged_transitions_keep_the_same_footprint(monkeypatch):
@@ -384,7 +394,7 @@ def test_sources_panel_is_attached_to_slc_row(monkeypatch, mode):
   monkeypatch.setattr(unified_speed, "_speed_limit_pulse_color", lambda color, _alpha: color)
   for name in ("draw_rectangle_rounded_lines_ex", "draw_line_ex", "draw_spline_segment_bezier_cubic"):
     monkeypatch.setattr(rl, name, lambda *args: None)
-  for name in ("_draw_header", "_draw_centered_text", "_draw_offset_pill", "_draw_unit"):
+  for name in ("_draw_header", "_draw_centered_text", "_draw_posted_limit", "_draw_unit"):
     monkeypatch.setattr(widget, name, lambda *args, **kwargs: None)
   panels = []
   monkeypatch.setattr(unified_speed, "_draw_sources_bubble", lambda _state, bounds: panels.append(bounds))
