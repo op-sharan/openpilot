@@ -245,7 +245,7 @@ class FordLateralController:
     if (self.CP.carFingerprint != CAR.FORD_MUSTANG_MACH_E_MK1 or not self.CP.flags & FordFlags.CANFD or
         steering_pressed or lane_change):
       return base
-    speed_weight = float(np.interp(v_ego, [9.0, 10.0, 14.0, 16.0], [0.0, 1.0, 1.0, 0.0]))
+    speed_weight = float(np.interp(v_ego, [8.0, 9.0, 14.0, 16.0], [0.0, 1.0, 1.0, 0.0]))
     deficit_weight = 0.0
     planned_curve = abs(desired) >= 0.003 or (abs(requested) >= 0.003 and requested * predicted > 0.0)
     if requested * desired > 0.0 and planned_curve:

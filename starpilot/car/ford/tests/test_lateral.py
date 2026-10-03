@@ -97,7 +97,7 @@ def test_mach_e_unwind_lag_ramps_continuously(controller, monkeypatch):
   (12.0, -0.012, -0.012, 0.004, False, False, 0.006),
   (12.0, 0.012, 0.012, 0.010, False, False, 0.002),
   (12.0, 0.012, 0.012, 0.014, False, False, 0.002),
-  (9.5, 0.012, 0.012, 0.004, False, False, 0.004),
+  (9.5, 0.012, 0.012, 0.004, False, False, 0.006),
   (15.0, 0.012, 0.012, 0.004, False, False, 0.004),
   (16.0, 0.012, 0.012, 0.004, False, False, 0.002),
   (12.0, 0.012, 0.012, 0.004, True, False, 0.002),
@@ -118,7 +118,7 @@ def test_understeer_error_preserves_other_fords(controller):
 
 
 @pytest.mark.parametrize("sign", (-1, 1))
-@pytest.mark.parametrize("speed,expected", ((9.0, 0.002), (9.5, 0.004), (10.0, 0.006),
+@pytest.mark.parametrize("speed,expected", ((8.0, 0.002), (8.5, 0.004), (9.0, 0.006), (9.5, 0.006), (10.0, 0.006),
                                           (12.0, 0.006), (15.0, 0.004), (16.0, 0.002)))
 def test_mach_e_planned_curve_error_uses_preview_request_before_action_builds(controller, sign, speed, expected):
   controller.CP.carFingerprint = CAR.FORD_MUSTANG_MACH_E_MK1
@@ -168,9 +168,57 @@ def test_mach_e_medium_speed_turn_in_lead_is_not_clipped_by_small_action_curvatu
 
 
 @pytest.mark.parametrize("sign", (-1, 1))
+def test_mach_e_curve_request_does_not_collapse_when_speed_crosses_curvature_clamp(controller, monkeypatch, sign):
+  controller.CP.carFingerprint = CAR.FORD_MUSTANG_MACH_E_MK1
+  controller.CP.flags = FordFlags.CANFD
+  monkeypatch.setattr(controller, "_predicted_curvature", lambda *_: sign * 0.006)
+  controller.curvature_last = sign * 0.006
+  controller.desired_curvature_last = sign * 0.006
+  commands = []
+  for speed in (8.9, 9.0, 9.01, 9.2, 9.5, 10.0):
+    result = controller.update(SimpleNamespace(latActive=True), car_state(speed=speed),
+                               SimpleNamespace(curvature=sign * 0.006))
+    assert result.active
+    assert result.path_angle == 0.0
+    commands.append(result.curvature)
+  assert commands == pytest.approx([sign * 0.006] * 6)
+
+
+@pytest.mark.parametrize("sign", (-1, 1))
+def test_mach_e_reversal_request_does_not_collapse_at_curvature_clamp(controller, monkeypatch, sign):
+  controller.CP.carFingerprint = CAR.FORD_MUSTANG_MACH_E_MK1
+  controller.CP.flags = FordFlags.CANFD
+  monkeypatch.setattr(controller, "_predicted_curvature", lambda *_: -sign * 0.004)
+  monkeypatch.setattr(controller, "_blend_and_scale", lambda *_: (-sign * 0.005, 1))
+  controller.curvature_last = -sign * 0.005
+  for speed in (8.9, 9.01, 9.5, 10.0):
+    result = controller.update(SimpleNamespace(latActive=True), car_state(speed=speed, curvature=sign * 0.001),
+                               SimpleNamespace(curvature=sign * 0.002))
+    assert result.curvature == pytest.approx(-sign * 0.005)
+    assert result.path_angle == 0.0
+
+
+@pytest.mark.parametrize("fingerprint,flags,driver,lane_change", (
+  (CAR.FORD_MUSTANG_MACH_E_MK1, FordFlags.CANFD, True, False),
+  (CAR.FORD_MUSTANG_MACH_E_MK1, FordFlags.CANFD, False, True),
+  (CAR.FORD_MUSTANG_MACH_E_MK1, 0, False, False),
+  (CAR.FORD_EDGE_MK2, FordFlags.CANFD, False, False),
+  (CAR.FORD_EXPLORER_MK6, FordFlags.CANFD, False, False),
+  (CAR.FORD_F_150_MK14, FordFlags.CANFD, False, False),
+))
+def test_curve_clamp_transition_preserves_driver_lane_change_and_other_fords(controller, fingerprint, flags, driver, lane_change):
+  controller.CP.carFingerprint = fingerprint
+  controller.CP.flags = flags
+  for speed in (9.01, 9.5):
+    assert controller._curvature_error_limit(0.006, 0.006, 0.0, speed, driver, lane_change, 0.006) == 0.002
+
+
+@pytest.mark.parametrize("sign", (-1, 1))
 @pytest.mark.parametrize("speed,preview,expected", (
-  (9.0, -0.004, 0.002),
-  (9.5, -0.004, 0.004),
+  (8.0, -0.004, 0.002),
+  (8.5, -0.004, 0.004),
+  (9.0, -0.004, 0.006),
+  (9.5, -0.004, 0.006),
   (10.0, -0.004, 0.006),
   (12.0, -0.004, 0.006),
   (14.0, -0.004, 0.006),

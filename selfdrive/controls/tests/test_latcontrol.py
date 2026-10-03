@@ -2092,6 +2092,41 @@ class TestLatControl:
     assert lac_log.active
     assert abs(tuned_output) < abs(base_output)
 
+  def test_honda_crv_5g_pid_center_gain_update_path(self):
+    controller, VM, CS, params, toggles = self._build_pid_controller(HONDA.HONDA_CRV_5G)
+    CS.vEgo = 8.0 * 0.44704
+    CS.steeringAngleDeg = -2.0
+    controller.pid.i = 0.03
+    toggles.honda_lateral_pid_kp_scale = 1.2
+    toggles.honda_lateral_pid_ki_scale = 0.8
+    for _ in range(20):
+      _, _, lac_log = controller.update(True, CS, VM, params, False, 0.0, False, 0.2, None, None, toggles)
+      assert lac_log.p == pytest.approx(controller.base_kp_v[0] * 1.2 * 0.5 * lac_log.angleError)
+      assert lac_log.i == pytest.approx(0.03)
+      assert controller.pid._k_i[1] == pytest.approx([value * 0.8 for value in controller.base_ki_v])
+
+    CS.vEgo = 25.0 * 0.44704
+    _, _, lac_log = controller.update(True, CS, VM, params, False, 0.0, False, 0.2, None, None, toggles)
+    assert lac_log.p == pytest.approx(controller.base_kp_v[0] * 1.2 * lac_log.angleError)
+
+  @pytest.mark.parametrize('car_name,eps_modified', [(HONDA.HONDA_CRV_5G, True), (HONDA.HONDA_CIVIC_BOSCH, False),
+                                                  (TOYOTA.TOYOTA_RAV4_TSS2, False)])
+  def test_honda_crv_5g_pid_center_gain_does_not_change_other_paths(self, monkeypatch, car_name, eps_modified):
+    controller, VM, CS, params, toggles = self._build_pid_controller(car_name)
+    if eps_modified:
+      CP = interfaces[car_name].get_non_essential_params(car_name)
+      CP.flags = int(CP.flags | HondaFlags.EPS_MODIFIED)
+      controller = LatControlPID(CP.as_reader(), interfaces[car_name](CP, custom.StarPilotCarParams.new_message()), DT_CTRL)
+    CS.vEgo = 8.0 * 0.44704
+    CS.steeringAngleDeg = -2.0
+
+    def unexpected_gain(*_args):
+      raise AssertionError('CR-V center gain must not run for this controller')
+
+    monkeypatch.setattr(latcontrol_pid, 'get_honda_crv_5g_pid_kp_scale', unexpected_gain)
+    _, _, lac_log = controller.update(True, CS, VM, params, False, 0.0, False, 0.2, None, None, toggles)
+    assert lac_log.p == pytest.approx(controller.base_kp_v[0] * lac_log.angleError)
+
   def test_rav4_tss2_torque_center_tune_fades_before_real_turns(self):
     low_speed_center = get_rav4_tss2_center_output_scale(0.05, 8.0)
     low_speed_turn = get_rav4_tss2_center_output_scale(1.0, 8.0)
