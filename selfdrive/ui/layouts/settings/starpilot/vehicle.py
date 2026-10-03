@@ -541,7 +541,7 @@ class ButtonActionComboDialog(Widget):
     title_size = 64
     ts = measure_text_cached(self._font_title, self._title, title_size)
     rl.draw_text_ex(self._font_title, self._title,
-                    rl.Vector2(int(dx + (dialog_w - ts.x) / 2), int(dy + 87)),
+                    rl.Vector2(int(dx + (dialog_w - ts.x) / 2), int(dy + 40)),
                     title_size, 0, rl.WHITE)
 
     font_label = gui_app.font(FontWeight.MEDIUM)

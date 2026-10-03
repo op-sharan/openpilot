@@ -350,7 +350,7 @@ class MapsManagerView(PanelManagerView):
 
     # Subtitle / Body Progress Description (26pt)
     gui_text_box(
-      rl.Rectangle(content_x, rect.y + 58, summary_w, 54),
+      rl.Rectangle(content_x, rect.y + 58, summary_w, 68),
       self._controller._progress_body(),
       26,
       AetherListColors.SUBTEXT,
@@ -452,9 +452,10 @@ class StarPilotMapsLayout(_SettingsPage):
     )
     self._schedule_button = self._child(
       AetherButton(
-        lambda: tr("Update: {}").format(_localized_schedule_label(self._params.get('PreferredSchedule'))),
+        self._schedule_action_label,
         self._on_schedule,
         emphasized=False,
+        font_size=26,
       )
     )
 
@@ -787,6 +788,13 @@ class StarPilotMapsLayout(_SettingsPage):
       gui_app.push_widget(alert_dialog(tr("Please select 'Whole U.S.' or pick individual states from the list below.")))
     else:
       self._on_download()
+
+  def _schedule_action_label(self) -> str:
+    return {
+      "Manually": tr("Auto: Off"),
+      "Weekly": tr("Auto: Weekly"),
+      "Monthly": tr("Auto: Monthly"),
+    }[schedule_label(self._params.get("PreferredSchedule"))]
 
   def _on_schedule(self):
     localized_options = [(value, tr(label)) for value, label in MAP_SCHEDULE_LABELS.items()]

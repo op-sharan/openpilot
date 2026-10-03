@@ -249,6 +249,37 @@ def test_empty_state_body_wraps_within_card(height, body_size, body_height, body
     assert body_labels[-1][1].endswith("...")
 
 
+@pytest.mark.parametrize("action_text", ["DELETE", "DOWNLOAD", "Current", "Reset", "Set Key"])
+def test_auto_action_pill_keeps_readable_text_inside_action_rail(action_text):
+  mod = _import_aethergrid()
+  mod.FONT_SCALE = 1.242
+  draws = []
+
+  def measure(_font, text, size, spacing=0):
+    return types.SimpleNamespace(x=len(text) * size * mod.FONT_SCALE * 0.65, y=size * mod.FONT_SCALE)
+
+  with patch.object(mod, "measure_text_cached", measure), \
+       patch.object(mod.rl, "draw_text_ex", lambda font, text, pos, size, spacing, color: draws.append((text, pos, size))):
+    pill = mod.draw_selection_list_row(mod.rl.Rectangle(0, 0, 1500, 128), title="Asset", action_text=action_text,
+                                      action_pill=True, action_text_size=26)
+
+  text, pos, size = next(draw for draw in draws if draw[0] == action_text)
+  assert size == 26
+  assert pill.x >= 1500 - mod.AETHER_LIST_METRICS.action_width
+  assert pill.x + pill.width <= 1500
+  assert pos.x >= pill.x + 11
+  assert pos.x + measure(None, text, size).x <= pill.x + pill.width - 11
+
+
+def test_action_pill_preserves_explicit_width_and_rail_limit():
+  mod = _import_aethergrid()
+  row = mod.rl.Rectangle(0, 0, 1500, 128)
+  for requested_width in (120, 1000):
+    pill = mod.draw_selection_list_row(row, title="Asset", action_text="Download", action_pill=True,
+                                      action_pill_width=requested_width)
+    assert pill.width == min(requested_width, mod.AETHER_LIST_METRICS.action_width - 28)
+
+
 class TestAethergridContracts(unittest.TestCase):
   def test_aethergrid_module_imports_with_headless_stubs(self):
     mod = _import_aethergrid()

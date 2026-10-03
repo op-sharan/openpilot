@@ -3013,7 +3013,10 @@ def draw_selection_list_row(
   if action_text:
     if action_pill:
       available_w = max(96.0, action_rect.width - 28)
-      chip_w = min(available_w, action_pill_width) if action_pill_width is not None else min(available_w, max(96.0, 42 + len(action_text) * 9))
+      pill_width = action_pill_width
+      if pill_width is None:
+        pill_width = max(96.0, math.ceil(measure_text_cached(title_font, action_text, action_text_size).x) + 24)
+      chip_w = min(available_w, pill_width)
       chip_h = min(float(action_pill_height), max(36.0, action_rect.height - 28))
       chip_rect = rl.Rectangle(action_rect.x + action_rect.width - chip_w - 18, action_rect.y + (action_rect.height - chip_h) / 2, chip_w, chip_h)
       draw_action_pill(
@@ -4023,7 +4026,7 @@ class HubTile(AetherTile):
       icon_scale = min(0.80, max(0.56, text_scale * 0.72))
       icon_h = CUSTOM_ICON_BASE_SIZE * CUSTOM_ICON_SCALE_MULT * icon_scale
 
-    total_h = icon_h + (gap if icon_h > 0 else 0) + title_size + (gap if desc_to_render else 0) + desc_size
+    total_h = icon_h + (gap if icon_h > 0 else 0) + (title_size + desc_size) * FONT_SCALE + (gap if desc_to_render else 0)
     content_top = ry + max(0, (rh - total_h) / 2)
 
     if self.custom_icon_key:
@@ -4037,7 +4040,7 @@ class HubTile(AetherTile):
     draw_text_fit_common(self._font_title, title_text,
                         rl.Vector2(rx + content_pad, content_top),
                         max_w, title_size, align_center=True, color=rl.WHITE)
-    content_top += title_size
+    content_top += title_size * FONT_SCALE
 
     if desc_to_render:
       content_top += gap
