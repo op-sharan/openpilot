@@ -9,13 +9,14 @@ from openpilot.common.params import Params
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
 from openpilot.selfdrive.ui.onroad.hud_renderer import COLORS
 from openpilot.selfdrive.ui.onroad.starpilot.slc_speed_limit import (
-  _draw_source_icon, _draw_sources_bubble, _get_slc_state, _is_slc_enabled, _speed_limit_pulse_color, source_icon_key,
+  _draw_source_icon, _get_slc_state, _is_slc_enabled, _speed_limit_pulse_color, source_icon_key,
 )
+from openpilot.selfdrive.ui.onroad.starpilot.speed_source_drawer import SpeedSourceDrawer
 from openpilot.selfdrive.ui.onroad.starpilot.unified_speed_presentation import (
   UnifiedSpeedPresentation, resolve_unified_speed,
 )
 from openpilot.selfdrive.ui.onroad.starpilot.widget_style import (
-  CONTROL_BG, CONTROL_ROUNDNESS, CONTROL_SEGMENTS, draw_control_card,
+  CONTROL_BG, CONTROL_ROUNDNESS, CONTROL_SEGMENTS, UNIFIED_ACCENT, draw_control_card,
 )
 from openpilot.selfdrive.ui.onroad.starpilot.widgets.base import LayoutWidget
 from openpilot.system.ui.lib.application import gui_app, FontWeight, FONT_SCALE
@@ -41,7 +42,6 @@ PAUSE_ICON_GAP = 8
 OFFSET_FONT_SIZE = 22
 INLINE_OFFSET_FONT_SIZE = 28
 CONFIRMATION_COLOR = rl.Color(188, 132, 255, 255)
-UNIFIED_ACCENT = rl.Color(160, 96, 230, 230)
 PAUSE_COLOR = rl.Color(UNIFIED_ACCENT.r, UNIFIED_ACCENT.g, UNIFIED_ACCENT.b, 255)
 
 
@@ -100,6 +100,16 @@ class UnifiedSpeedWidget(LayoutWidget):
     self._show_max = False
     self._pedal_override = False
     self._snapshot_frame: int | None = None
+    self._source_drawer = SpeedSourceDrawer()
+    self.set_touch_event_valid_callback(lambda event: self.contains_pointer(event.pos))
+
+  def collapse_sources(self) -> None:
+    """Hide the visual drawer without changing the user's persistent preference."""
+    self._source_drawer.reset()
+
+  def hide_event(self) -> None:
+    self.collapse_sources()
+    super().hide_event()
 
   def _refresh_snapshot(self) -> None:
     frame = getattr(ui_state.sm, "frame", None)
@@ -125,7 +135,10 @@ class UnifiedSpeedWidget(LayoutWidget):
   @property
   def is_visible(self) -> bool:
     self._refresh_snapshot()
-    return self._show_max or self._presentation.mode != "max_only"
+    visible = self._show_max or self._presentation.mode != "max_only"
+    if not visible:
+      self.collapse_sources()
+    return visible
 
   def get_size(self) -> tuple[float, float]:
     self._refresh_snapshot()
@@ -133,12 +146,25 @@ class UnifiedSpeedWidget(LayoutWidget):
     return float(UNIFIED_WIDTH), float(height)
 
   @property
-  def _hit_rect(self) -> rl.Rectangle:
+  def _card_hit_rect(self) -> rl.Rectangle:
     rect = self.rect
     return rl.Rectangle(
       rect.x, rect.y - self.TOUCH_SLOP,
       rect.width + self.TOUCH_SLOP, rect.height + 2 * self.TOUCH_SLOP,
     )
+
+  @property
+  def _hit_rect(self) -> rl.Rectangle:
+    rect = self._card_hit_rect
+    return rl.Rectangle(rect.x, rect.y, rect.width + self._source_drawer.width, rect.height)
+
+  def contains_pointer(self, mouse_pos) -> bool:
+    return (rl.check_collision_point_rec(mouse_pos, self._card_hit_rect) or
+            (self._source_drawer.width > 0 and rl.check_collision_point_rec(mouse_pos, self._source_bounds())))
+
+  def _source_bounds(self) -> rl.Rectangle:
+    limit = self._speed_limit_bounds(self.rect) or self.rect
+    return self._source_drawer.bounds(self.rect, limit.y)
 
   def _speed_limit_bounds(self, rect: rl.Rectangle) -> rl.Rectangle | None:
     mode = self._presentation.mode
@@ -283,10 +309,19 @@ class UnifiedSpeedWidget(LayoutWidget):
 
   def _draw_speed_limit_border(self, rect: rl.Rectangle, limit: rl.Rectangle, color: rl.Color) -> None:
     # Clip the shared rounded outline so only the lower Speed Limit row changes.
-    rl.begin_scissor_mode(int(limit.x), int(limit.y), int(limit.width + 1), int(limit.height + 1))
+    drawer = self._source_drawer
+    if drawer.width > 0:
+      rl.rl_draw_render_batch_active()
+      rl.begin_scissor_mode(int(limit.x - 3), int(limit.y), math.ceil(limit.width + drawer.width + 6), int(limit.height + 4))
+    else:
+      rl.begin_scissor_mode(int(limit.x), int(limit.y), int(limit.width + 1), int(limit.height + 1))
     try:
-      rl.draw_rectangle_rounded_lines_ex(rect, CONTROL_ROUNDNESS, CONTROL_SEGMENTS, 3, color)
+      if drawer.width > 0:
+        drawer.draw_border(rect, limit.y, 3, color)
+      else:
+        rl.draw_rectangle_rounded_lines_ex(rect, CONTROL_ROUNDNESS, CONTROL_SEGMENTS, 3, color)
     finally:
+      rl.rl_draw_render_batch_active()
       rl.end_scissor_mode()
     if self._presentation.mode == "split":
       rl.draw_line_ex(rl.Vector2(rect.x + 8, limit.y), rl.Vector2(rect.x + rect.width - 8, limit.y), 3, color)
@@ -295,12 +330,20 @@ class UnifiedSpeedWidget(LayoutWidget):
     presentation = self._presentation
     state = self._slc_state
     speed_color = COLORS.DISENGAGED if self._pedal_override else COLORS.WHITE
-    rl.draw_rectangle_rounded_lines_ex(
-      rect, CONTROL_ROUNDNESS, CONTROL_SEGMENTS, 7,
-      rl.Color(UNIFIED_ACCENT.r, UNIFIED_ACCENT.g, UNIFIED_ACCENT.b, 55),
-    )
-    draw_control_card(rect, fill=CONTROL_BG, border=UNIFIED_ACCENT, border_width=2)
     limit_bounds = self._speed_limit_bounds(rect)
+    drawer = self._source_drawer
+    if state is None or presentation.confirmation_pending:
+      drawer.reset()
+    else:
+      drawer.update(ui_state.ui_params.get_bool("SpeedLimitSources"), rl.get_time())
+    if drawer.width > 0:
+      drawer.draw_frame(rect, (limit_bounds or rect).y, CONTROL_BG, UNIFIED_ACCENT)
+    else:
+      rl.draw_rectangle_rounded_lines_ex(
+        rect, CONTROL_ROUNDNESS, CONTROL_SEGMENTS, 7,
+        rl.Color(UNIFIED_ACCENT.r, UNIFIED_ACCENT.g, UNIFIED_ACCENT.b, 55),
+      )
+      draw_control_card(rect, fill=CONTROL_BG, border=UNIFIED_ACCENT, border_width=2)
     if presentation.mode == "split":
       rl.draw_line_ex(
         rl.Vector2(rect.x + 8, limit_bounds.y), rl.Vector2(rect.x + rect.width - 8, limit_bounds.y),
@@ -361,8 +404,8 @@ class UnifiedSpeedWidget(LayoutWidget):
         vision_color = _speed_limit_pulse_color(UNIFIED_ACCENT, UNIFIED_ACCENT.a)
         if (vision_color.r, vision_color.g, vision_color.b) != (UNIFIED_ACCENT.r, UNIFIED_ACCENT.g, UNIFIED_ACCENT.b):
           self._draw_speed_limit_border(rect, limit_bounds, vision_color)
-      if state is not None and ui_state.ui_params.get_bool("SpeedLimitSources"):
-        _draw_sources_bubble(state, limit_bounds or rect)
+      if drawer.width > 0:
+        drawer.draw_contents(state, rect, (limit_bounds or rect).y)
 
   def _handle_mouse_press(self, mouse_pos) -> None:
     limit = self._speed_limit_bounds(self.rect)
@@ -375,7 +418,9 @@ class UnifiedSpeedWidget(LayoutWidget):
     top_slop = 0 if self._presentation.mode in ("split", "merged") else self.TOUCH_SLOP
     target = rl.Rectangle(limit.x, limit.y - top_slop,
                           limit.width + self.TOUCH_SLOP, limit.height + top_slop + self.TOUCH_SLOP)
-    if not rl.check_collision_point_rec(mouse_pos, target):
+    in_drawer = (not self._presentation.confirmation_pending and self._source_drawer.width > 0 and
+                 rl.check_collision_point_rec(mouse_pos, self._source_bounds()))
+    if not rl.check_collision_point_rec(mouse_pos, target) and not in_drawer:
       return
     if self._presentation.confirmation_pending:
       Params(memory=True).put_bool("SpeedLimitAccepted", True)

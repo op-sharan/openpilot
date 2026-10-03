@@ -11,6 +11,11 @@ from openpilot.selfdrive.ui.onroad.starpilot.unified_speed_presentation import U
 from openpilot.selfdrive.ui.onroad.starpilot.widgets import unified_speed
 
 
+@pytest.fixture(autouse=True)
+def no_gpu_batch(monkeypatch):
+  monkeypatch.setattr(rl, "rl_draw_render_batch_active", lambda: None)
+
+
 def make_widget(mode="split", pending=False):
   widget = object.__new__(unified_speed.UnifiedSpeedWidget)
   height = unified_speed.UNIFIED_HEIGHT if mode in ("split", "merged") else unified_speed.SINGLE_HEIGHT
@@ -23,6 +28,7 @@ def make_widget(mode="split", pending=False):
   widget._semi_bold_digit_center = widget._bold_digit_center = 0.5
   widget._bold_digit_bottom = 0.8
   widget._unit_tops = {"mph": 0.0, "km/h": 0.0}
+  widget._source_drawer = unified_speed.SpeedSourceDrawer()
   widget.hud_renderer = SimpleNamespace(is_cruise_set=True)
   return widget
 
@@ -390,6 +396,9 @@ def test_sources_panel_is_attached_to_slc_row(monkeypatch, mode):
   widget = make_widget(mode)
   widget._show_max = mode != "limit_only"
   widget._slc_state = {"slc_overridden_speed": 0}
+  widget._source_drawer.update(True, 0)
+  widget._source_drawer.update(True, 1)
+  monkeypatch.setattr(rl, "get_time", lambda: 1)
   monkeypatch.setattr(unified_speed, "ui_state", SimpleNamespace(
     status=unified_speed.UIStatus.DISENGAGED, ui_params=SimpleNamespace(get_bool=lambda _key: True),
   ))
@@ -400,12 +409,49 @@ def test_sources_panel_is_attached_to_slc_row(monkeypatch, mode):
   for name in ("_draw_header", "_draw_centered_text", "_draw_posted_limit", "_draw_unit", "_unit_y"):
     monkeypatch.setattr(widget, name, lambda *args, **kwargs: None)
   panels = []
-  monkeypatch.setattr(unified_speed, "_draw_sources_bubble", lambda _state, bounds: panels.append(bounds))
+  monkeypatch.setattr(widget._source_drawer, "draw_frame", lambda *args: None)
+  monkeypatch.setattr(widget._source_drawer, "draw_contents", lambda _state, rect, top: panels.append(widget._source_drawer.bounds(rect, top)))
   widget._render(widget.rect)
   assert len(panels) == 1
   panel = panels[0]
-  assert (panel.x, panel.width) == (widget.rect.x, widget.rect.width)
+  assert (panel.x, panel.width) == (widget.rect.x + widget.rect.width, 248)
   assert (panel.y, panel.height) == ((283, 240) if mode in ("split", "merged") else (75, 250))
+
+
+def test_drawer_taps_toggle_sources_and_empty_upper_area_does_not(monkeypatch):
+  widget = make_widget("merged")
+  widget._source_drawer.update(True, 0)
+  widget._source_drawer.update(True, 1)
+  writes = []
+  params = SimpleNamespace(get_bool=lambda _key: True, put_bool=lambda key, value: writes.append((key, value)))
+  monkeypatch.setattr(unified_speed, "ui_state", SimpleNamespace(ui_params=params))
+  assert widget.contains_pointer(rl.Vector2(400, 350))
+  assert not widget.contains_pointer(rl.Vector2(400, 200))
+  assert not widget.contains_pointer(rl.Vector2(511, 350))
+  widget._handle_mouse_press(rl.Vector2(400, 200))
+  assert writes == []
+  widget._handle_mouse_press(rl.Vector2(400, 350))
+  assert writes == [("SpeedLimitSources", False)]
+  widget.collapse_sources()
+  assert not widget.contains_pointer(rl.Vector2(400, 350))
+
+
+@pytest.mark.parametrize("pending,stale", [(True, False), (False, True)])
+def test_pending_confirmation_and_stale_state_hide_drawer_without_changing_preference(monkeypatch, pending, stale):
+  widget = make_widget(pending=pending)
+  widget._slc_state = None if stale else {"slc_overridden_speed": 0}
+  widget._source_drawer.update(True, 0)
+  widget._source_drawer.update(True, 1)
+  monkeypatch.setattr(unified_speed, "ui_state", SimpleNamespace(status=unified_speed.UIStatus.DISENGAGED,
+                                                                 ui_params=SimpleNamespace(get_bool=lambda _key: True)))
+  monkeypatch.setattr(unified_speed, "draw_control_card", lambda *args, **kwargs: None)
+  for name in ("draw_rectangle_rounded_lines_ex", "draw_line_ex", "draw_spline_segment_bezier_cubic", "begin_scissor_mode", "end_scissor_mode"):
+    monkeypatch.setattr(rl, name, lambda *args: None)
+  for name in ("_draw_header", "_draw_centered_text", "_draw_posted_limit", "_draw_unit", "_unit_y"):
+    monkeypatch.setattr(widget, name, lambda *args, **kwargs: None)
+  widget._render(widget.rect)
+  assert widget._source_drawer.width == 0
+  assert not widget.contains_pointer(rl.Vector2(400, 350))
 
 
 @pytest.fixture
