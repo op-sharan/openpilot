@@ -21,6 +21,8 @@ def make_widget(mode="split", pending=False):
   widget._pedal_override = False
   widget._font_semi_bold = widget._font_bold = None
   widget._semi_bold_digit_center = widget._bold_digit_center = 0.5
+  widget._bold_digit_bottom = 0.8
+  widget._unit_tops = {"mph": 0.0, "km/h": 0.0}
   widget.hud_renderer = SimpleNamespace(is_cruise_set=True)
   return widget
 
@@ -176,6 +178,7 @@ def test_split_and_merged_draw_one_card_with_both_headers(monkeypatch):
       if not compact:
         values.append(widget._presentation.posted_speed_text)
       offsets.append((bounds, widget._presentation.offset_text, y))
+      return unified_speed.OFFSET_FONT_SIZE if compact else unified_speed.VALUE_FONT_SIZE
 
     monkeypatch.setattr(widget, "_draw_posted_limit", posted_limit)
     monkeypatch.setattr(widget, "_draw_merged_separator", lambda _rect, rows=separators: rows.append(True))
@@ -394,7 +397,7 @@ def test_sources_panel_is_attached_to_slc_row(monkeypatch, mode):
   monkeypatch.setattr(unified_speed, "_speed_limit_pulse_color", lambda color, _alpha: color)
   for name in ("draw_rectangle_rounded_lines_ex", "draw_line_ex", "draw_spline_segment_bezier_cubic"):
     monkeypatch.setattr(rl, name, lambda *args: None)
-  for name in ("_draw_header", "_draw_centered_text", "_draw_posted_limit", "_draw_unit"):
+  for name in ("_draw_header", "_draw_centered_text", "_draw_posted_limit", "_draw_unit", "_unit_y"):
     monkeypatch.setattr(widget, name, lambda *args, **kwargs: None)
   panels = []
   monkeypatch.setattr(unified_speed, "_draw_sources_bubble", lambda _state, bounds: panels.append(bounds))

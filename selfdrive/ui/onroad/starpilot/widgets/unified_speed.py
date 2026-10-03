@@ -34,6 +34,7 @@ HEADER_ICON_SIZE = 34
 HEADER_FONT_SIZE = 28
 VALUE_FONT_SIZE = 96
 UNIT_FONT_SIZE = 28
+UNIT_GAP = 20
 PAUSE_ICON_WIDTH = 12
 PAUSE_ICON_HEIGHT = 14
 PAUSE_ICON_GAP = 8
@@ -44,9 +45,11 @@ UNIFIED_ACCENT = rl.Color(160, 96, 230, 230)
 PAUSE_COLOR = rl.Color(UNIFIED_ACCENT.r, UNIFIED_ACCENT.g, UNIFIED_ACCENT.b, 255)
 
 
-def _digit_center(font: rl.Font) -> float:
+def _digit_metrics(font: rl.Font) -> tuple[float, float]:
   index = rl.get_glyph_index(font, ord("0"))
-  return (font.glyphs[index].offsetY + font.recs[index].height / 2) / font.baseSize
+  top = font.glyphs[index].offsetY
+  height = font.recs[index].height
+  return (top + height / 2) / font.baseSize, (top + height) / font.baseSize
 
 
 def _draw_header_icon(icon_key: str, x: float, y: float) -> None:
@@ -88,8 +91,9 @@ class UnifiedSpeedWidget(LayoutWidget):
     self.hud_renderer = hud_renderer
     self._font_semi_bold = gui_app.font(FontWeight.SEMI_BOLD)
     self._font_bold = gui_app.font(FontWeight.BOLD)
-    self._semi_bold_digit_center = _digit_center(self._font_semi_bold)
-    self._bold_digit_center = _digit_center(self._font_bold)
+    self._semi_bold_digit_center, _ = _digit_metrics(self._font_semi_bold)
+    self._bold_digit_center, self._bold_digit_bottom = _digit_metrics(self._font_bold)
+    self._unit_tops: dict[str, float] = {}
     self._slc_state: dict | None = None
     self._slc_enabled = False
     self._presentation: UnifiedSpeedPresentation | None = None
@@ -170,7 +174,7 @@ class UnifiedSpeedWidget(LayoutWidget):
     )
 
   def _draw_posted_limit(self, bounds: rl.Rectangle, y: float, value_color: rl.Color,
-                         offset_color: rl.Color, *, compact: bool = False) -> None:
+                         offset_color: rl.Color, *, compact: bool = False) -> int:
     presentation = self._presentation
     size = OFFSET_FONT_SIZE if compact else VALUE_FONT_SIZE
     offset_font_size = OFFSET_FONT_SIZE if compact else INLINE_OFFSET_FONT_SIZE
@@ -178,7 +182,7 @@ class UnifiedSpeedWidget(LayoutWidget):
     offset = None if presentation.confirmation_pending else presentation.offset_text
     if offset is None:
       self._draw_centered_text(presentation.posted_speed_text, bounds, y, size, value_color, bold=not compact)
-      return
+      return size
 
     value_size = measure_text_cached(font, presentation.posted_speed_text, size)
     offset_size = measure_text_cached(self._font_semi_bold, offset, offset_font_size)
@@ -202,6 +206,14 @@ class UnifiedSpeedWidget(LayoutWidget):
       offset, rl.Rectangle(x + value_size.x + gap, offset_y, offset_size.x, offset_size.y),
       offset_y, offset_font_size, offset_color,
     )
+    return size
+
+  def _unit_y(self, value_y: float, value_size: int) -> float:
+    text = tr(self._presentation.unit_text)
+    if text not in self._unit_tops:
+      font = self._font_semi_bold
+      self._unit_tops[text] = min(font.glyphs[rl.get_glyph_index(font, ord(char))].offsetY for char in text if not char.isspace()) / font.baseSize
+    return value_y + value_size * FONT_SCALE * self._bold_digit_bottom + UNIT_GAP - UNIT_FONT_SIZE * FONT_SCALE * self._unit_tops[text]
 
   def _draw_unit(self, bounds: rl.Rectangle, y: float) -> None:
     text = tr(self._presentation.unit_text)
@@ -306,7 +318,8 @@ class UnifiedSpeedWidget(LayoutWidget):
       if presentation.mode != "merged":
         value_y = max_bounds.y + (60 if presentation.mode == "split" else 75)
         self._draw_centered_text(presentation.max_speed_text, max_bounds, value_y, VALUE_FONT_SIZE, max_color, bold=True)
-        self._draw_unit(max_bounds, max_bounds.y + max_bounds.height - (42 if presentation.mode == "split" else 46))
+        unit_y = max_bounds.y + max_bounds.height - 42 if presentation.mode == "split" else self._unit_y(value_y, VALUE_FONT_SIZE)
+        self._draw_unit(max_bounds, unit_y)
 
     if limit_bounds is not None:
       icon_key = source_icon_key(presentation.source)
@@ -318,10 +331,12 @@ class UnifiedSpeedWidget(LayoutWidget):
         header_bounds = rl.Rectangle(limit_bounds.x, rect.y + rect.height - MERGED_FOOTER_HEIGHT, limit_bounds.width, MERGED_FOOTER_HEIGHT)
       self._draw_header(header_bounds, "SPEED LIMIT", icon_key, label_color)
       if presentation.mode != "merged":
-        self._draw_posted_limit(limit_bounds, limit_bounds.y + 66, speed_color, detail_color)
+        value_y = limit_bounds.y + 66
+        value_size = self._draw_posted_limit(limit_bounds, value_y, speed_color, detail_color)
         if presentation.confirmation_pending:
           self._draw_centered_text(tr("PENDING"), limit_bounds, limit_bounds.y + 168, 25, CONFIRMATION_COLOR)
-        self._draw_unit(limit_bounds, limit_bounds.y + limit_bounds.height - 42)
+        unit_y = limit_bounds.y + limit_bounds.height - 42 if presentation.confirmation_pending else self._unit_y(value_y, value_size)
+        self._draw_unit(limit_bounds, unit_y)
 
     if presentation.mode == "merged":
       # Leave a gutter for the vertical connector, then center the shared value and unit as a group.
