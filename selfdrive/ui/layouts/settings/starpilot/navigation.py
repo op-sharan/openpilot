@@ -761,9 +761,6 @@ class StarPilotNavigationLayout(_SettingsPage):
           action_pill=True,
           action_pill_height=58,
           action_pill_width=150,
-          title_size=31,
-          subtitle_size=22,
-          action_text_size=23,
           row_separator=PANEL_STYLE.divider_color,
         )
         y += NAV_ROW_HEIGHT
@@ -802,9 +799,6 @@ class StarPilotNavigationLayout(_SettingsPage):
           action_pill=True,
           action_pill_height=58,
           action_pill_width=150,
-          title_size=31,
-          subtitle_size=22,
-          action_text_size=23,
           row_separator=PANEL_STYLE.divider_color,
         )
         y += NAV_ROW_HEIGHT
@@ -837,9 +831,6 @@ class StarPilotNavigationLayout(_SettingsPage):
           action_pill=True,
           action_pill_height=58,
           action_pill_width=150,
-          title_size=31,
-          subtitle_size=22,
-          action_text_size=23,
           row_separator=PANEL_STYLE.divider_color,
         )
         y += NAV_ROW_HEIGHT

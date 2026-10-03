@@ -2861,7 +2861,7 @@ class AetherAdjustorRow(Widget):
       draw_rounded_fill(fill_rect, with_alpha(self._color, fill_alpha), radius_px=bar_h // 2)
 
     inset = 18
-    title_y = bar_rect.y + (bar_h - title_fs) / 2
+    title_y = bar_rect.y + (bar_h - title_fs * FONT_SCALE) / 2
     rl.draw_text_ex(self._font_title, self._title,
                     rl.Vector2(bar_rect.x + inset, title_y),
                     title_fs, 0, self._style.title_color)
@@ -2870,7 +2870,7 @@ class AetherAdjustorRow(Widget):
     value_w = measure_text_cached(self._font_value, value_str, value_fs).x
     rl.draw_text_ex(self._font_value, value_str,
                     rl.Vector2(bar_rect.x + bar_rect.width - inset - value_w,
-                               bar_rect.y + (bar_h - value_fs) / 2),
+                               bar_rect.y + (bar_h - value_fs * FONT_SCALE) / 2),
                     value_fs, 0, self._style.title_color)
 
     if self._subtitle:
